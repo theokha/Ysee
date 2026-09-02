@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: yc-launch-monitor
+    runtime: docker
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/monitor.db
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    disk:
+      name: monitor-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,20 @@
+{
+  "tweets": [
+    {
+      "type": "tweet",
+      "id": "2094544359148728362",
+      "url": "https://x.com/alice/status/2094544359148728362",
+      "twitterUrl": "https://twitter.com/alice/status/2094544359148728362",
+      "text": "We got into YC F26! Building Harbor Labs.",
+      "createdAt": "Mon Aug 31 21:54:24 +0000 2026",
+      "lang": "en",
+      "author": {
+        "type": "user",
+        "userName": "alice",
+        "name": "Alice Founder"
+      }
+    }
+  ],
+  "has_next_page": false,
+  "next_cursor": ""
+}

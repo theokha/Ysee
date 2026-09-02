@@ -1,0 +1,22 @@
+{
+  "id": 42,
+  "name": "Almanac",
+  "slug": "almanac",
+  "former_names": ["Almanac HQ"],
+  "website": "https://usealmanac.com",
+  "one_liner": "AI agents for operators.",
+  "batch": "Summer 2026",
+  "launched_at": 1754000000,
+  "url": "https://www.ycombinator.com/companies/almanac",
+  "founders": [
+    {
+      "name": "Jane Doe",
+      "twitter_url": "https://x.com/janedoe",
+      "twitter_username": "janedoe"
+    },
+    {
+      "name": "Generic",
+      "twitter": "not a handle"
+    }
+  ]
+}

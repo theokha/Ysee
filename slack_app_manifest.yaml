@@ -1,0 +1,26 @@
+display_information:
+  name: YC Launch Monitor
+  description: Early YC and Speedrun founder alerts
+  background_color: "#F26522"
+features:
+  bot_user:
+    display_name: YC Launch Monitor
+    always_online: true
+  slash_commands:
+    - command: /yc
+      description: Show YC Launch Monitor status
+      usage_hint: status
+      url: https://YOUR-DOMAIN.example/slack/commands
+oauth_config:
+  redirect_urls:
+    - https://YOUR-DOMAIN.example/slack/oauth_redirect
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.public
+      - im:write
+      - commands
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

@@ -1,0 +1,253 @@
+from unittest.mock import AsyncMock, MagicMock
+
+import openai
+import pytest
+
+from yc_monitor.gpt_classify import GPTSocialClassifier, SocialJudgement
+from yc_monitor.models import AlertKind, CanonicalItem, Source
+
+
+def social_item(text: str, company: str | None = None) -> CanonicalItem:
+    return CanonicalItem(
+        Source.TWITTER,
+        "tweet-1",
+        company,
+        "https://x.com/alice/status/tweet-1",
+        content_text=text,
+        founder_name="Alice",
+        founder_handle="alice",
+    )
+
+
+def classifier_with_result(judgement: SocialJudgement) -> GPTSocialClassifier:
+    response = MagicMock(output_parsed=judgement)
+    client = MagicMock()
+    client.responses.parse = AsyncMock(return_value=response)
+    return GPTSocialClassifier("key", "test-model", 5, 0, 2, 0.65, client=client)
+
+
+@pytest.mark.asyncio
+async def test_gpt_accepts_founder_launch_and_extracts_fields() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name="Frontier Computing",
+        batch="YC S26",
+        confidence=0.94,
+        reason="First-party company launch",
+        noise_type=None,
+    ))
+    item = social_item("Today we're launching Frontier Computing (YC S26)")
+    result = await classifier.classify(item, set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_FOUNDER
+    assert result.alert.dedup_key == "early:frontier computing"
+    assert item.batch == "YC S26"
+
+
+@pytest.mark.asyncio
+async def test_gpt_rejects_positive_without_company_name() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name=None,
+        batch="YC",
+        confidence=0.95,
+        reason="Author says they got into YC",
+        noise_type=None,
+    ))
+    result = await classifier.classify(
+        social_item("Since we just got into YC, everyone got curious"), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.persist
+    assert result.reason == "gpt_rejected:positive_without_company_name"
+
+
+@pytest.mark.asyncio
+async def test_gpt_rejects_news() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        company_name="Almanac",
+        batch="YC S26",
+        confidence=0.98,
+        reason="Third-party news report",
+        noise_type="news",
+    ))
+    result = await classifier.classify(
+        social_item("Almanac YC S26 launches an AI agent"), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.persist
+    assert result.reason.startswith("gpt_rejected:")
+
+
+@pytest.mark.asyncio
+async def test_almanac_alias_and_handle_override_gpt() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name="Almanac",
+        batch="YC S26",
+        confidence=0.99,
+        reason="First-party",
+        noise_type=None,
+    ))
+    by_name = await classifier.classify(
+        social_item("We're launching Almanac (YC S26)", "Almanac"),
+        {"almanac", "almanac hq"},
+        {"usealmanac.com"},
+        {"janedoe"},
+    )
+    assert by_name.alert is None
+    assert by_name.reason == "company_already_official"
+    by_handle = await classifier.classify(
+        social_item("We got into YC S26 building Harbor", "Harbor"),
+        set(),
+        set(),
+        {"alice"},
+    )
+    assert by_handle.alert is None
+    assert by_handle.reason == "founder_already_official"
+
+
+@pytest.mark.asyncio
+async def test_official_identity_overrides_gpt() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name="Acme AI",
+        batch="YC S26",
+        confidence=0.95,
+        reason="First-party",
+        noise_type=None,
+    ))
+    result = await classifier.classify(
+        social_item("We're launching Acme AI (YC S26)"), {"acme"}, set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "company_already_official"
+
+
+@pytest.mark.asyncio
+async def test_non_program_post_skips_gpt() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name="Acme",
+        batch=None,
+        confidence=1,
+        reason="unused",
+        noise_type=None,
+    ))
+    result = await classifier.classify(social_item("We launched a new feature"), set(), set(), set())
+    assert result.reason == "missing_program_reference"
+    assert classifier.client
+    classifier.client.responses.parse.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_failure_defers_weak_candidate() -> None:
+    request = MagicMock()
+    client = MagicMock()
+    client.responses.parse = AsyncMock(
+        side_effect=openai.APIConnectionError(request=request)
+    )
+    classifier = GPTSocialClassifier("key", "test-model", 5, 0, 2, 0.65, client=client)
+    result = await classifier.classify(
+        social_item("Frontier Computing is in YC S26"), set(), set(), set()
+    )
+    assert result.alert is None
+    assert not result.persist
+
+
+@pytest.mark.asyncio
+async def test_api_failure_keeps_deterministic_positive() -> None:
+    request = MagicMock()
+    client = MagicMock()
+    client.responses.parse = AsyncMock(
+        side_effect=openai.APIConnectionError(request=request)
+    )
+    classifier = GPTSocialClassifier("key", "test-model", 5, 0, 2, 0.65, client=client)
+    result = await classifier.classify(
+        social_item("We got into YC S26!", "Acme AI"), set(), set(), set()
+    )
+    assert result.alert
+    assert result.persist
+
+
+@pytest.mark.asyncio
+async def test_no_key_uses_deterministic_classifier() -> None:
+    classifier = GPTSocialClassifier(None, "test-model", 5, 0, 2, 0.65)
+    result = await classifier.classify(
+        social_item("We got into YC S26!", "Acme AI"), set(), set(), set()
+    )
+    assert result.alert
+
+
+@pytest.mark.asyncio
+async def test_gpt_cycle_budget_caps_calls_and_records_stats() -> None:
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        company_name="Frontier Computing",
+        batch="YC S26",
+        confidence=0.94,
+        reason="First-party company launch",
+        noise_type=None,
+    )
+    response = MagicMock(output_parsed=judgement)
+    client = MagicMock()
+    client.responses.parse = AsyncMock(return_value=response)
+    classifier = GPTSocialClassifier(
+        "key", "test-model", 5, 0, 2, 0.65, max_calls_per_cycle=1, client=client
+    )
+    first = await classifier.classify(
+        social_item("Today we're launching Frontier Computing (YC S26)"), set(), set(), set()
+    )
+    second = await classifier.classify(
+        social_item("We got into YC S26 as Harbor Labs"), set(), set(), set()
+    )
+    skipped = await classifier.classify(social_item("We launched a new feature"), set(), set(), set())
+    assert first.alert
+    assert second.reason == "gpt_cycle_budget_exhausted"
+    assert not second.persist
+    assert skipped.reason == "missing_program_reference"
+    assert classifier.client
+    classifier.client.responses.parse.assert_awaited_once()
+    assert classifier.stats.as_dict() == {
+        "calls": 1,
+        "accepted": 1,
+        "rejected": 1,
+        "deferred": 1,
+        "prefiltered": 1,
+        "capped": 1,
+        "max_calls": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_gpt_stats_count_rejected_and_deferred() -> None:
+    client = MagicMock()
+    client.responses.parse = AsyncMock(
+        side_effect=[
+            MagicMock(output_parsed=SocialJudgement(
+                is_founder_self_announcement=False,
+                company_name="Almanac",
+                batch="YC S26",
+                confidence=0.98,
+                reason="Third-party news report",
+                noise_type="news",
+            )),
+            openai.APIConnectionError(request=MagicMock()),
+        ]
+    )
+    classifier = GPTSocialClassifier(
+        "key", "test-model", 5, 0, 2, 0.65, max_calls_per_cycle=5, client=client
+    )
+    rejected = await classifier.classify(
+        social_item("Almanac YC S26 launches an AI agent"), set(), set(), set()
+    )
+    deferred = await classifier.classify(
+        social_item("Frontier Computing is in YC S26"), set(), set(), set()
+    )
+    assert rejected.persist
+    assert not deferred.persist
+    assert classifier.stats.calls == 2
+    assert classifier.stats.rejected == 1
+    assert classifier.stats.deferred == 1
+    assert classifier.stats.accepted == 0

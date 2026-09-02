@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-08-31T02:27:34.876Z",
+  "summary": {
+    "previous_total": 6195,
+    "current_total": 6196,
+    "added": 1,
+    "removed": 0,
+    "updated": 44
+  },
+  "added": [
+    {
+      "id": 99999,
+      "name": "Redoubt Insurance",
+      "slug": "redoubt-insurance",
+      "batch": "Fall 2026",
+      "website": "https://redoubt.example",
+      "url": "https://www.ycombinator.com/companies/redoubt-insurance"
+    }
+  ],
+  "removed": [],
+  "updated": []
+}

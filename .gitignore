@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+data/*.db*
+data/*.json
+!data/.gitkeep
+.DS_Store
+*.zip
+joinpond.ai_tasks_detail_*.md
