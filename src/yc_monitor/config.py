@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     )
     linkedin_actor_id: str = "buIWk2uOUzTmcLsuB"
     linkedin_actor_build_id: str = "ASBzmjLXGQlvadkLr"
+    linkedin_window_hours: int = Field(
+        default=36,
+        ge=6,
+        le=168,
+        description="Client-side LinkedIn post window in hours (fetches a week from the actor)",
+    )
 
     yc_speedrun_url: str | None = "https://speedrun-api.a16z.com/api/companies/companies/"
     pond_access_key: str | None = None

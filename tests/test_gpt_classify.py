@@ -101,6 +101,141 @@ async def test_gpt_rejects_news() -> None:
     assert result.reason.startswith("gpt_rejected:")
 
 
+THIRD_PARTY_TEXT = "Metal (YC S26), a robotics startup, just raised a $12M seed round"
+
+
+@pytest.mark.asyncio
+async def test_third_party_new_company_report_promotes_to_yc_launch() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Metal",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Metal (YC S26)", "just raised a $12M seed round"],
+        confidence=0.9,
+        reason="News account reports YC S26 company Metal raised funding",
+        noise_type=None,
+    ))
+    item = social_item(THIRD_PARTY_TEXT)
+    result = await classifier.classify(item, set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_YC_LAUNCH
+    assert result.alert.dedup_key == "early:metal"
+    assert result.reason.startswith("gpt_new_company_report:")
+    assert item.company_name == "Metal"
+    assert item.batch == "YC S26"
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_suppressed_when_company_already_official() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Metal",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Metal (YC S26)"],
+        confidence=0.9,
+        reason="Reports YC S26 company Metal raised funding",
+        noise_type=None,
+    ))
+    result = await classifier.classify(
+        social_item(THIRD_PARTY_TEXT, "Metal"), {"metal"}, set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "company_already_official"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "label"),
+    [
+        ({"is_retrospective": True}, "retrospective"),
+        ({"signal_kind": "first_party_launch"}, "wrong_signal_kind"),
+        ({"signal_kind": "none"}, "no_signal_kind"),
+        ({"is_satire_or_joke": True}, "satire"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_third_party_report_not_promoted_without_qualifiers(
+    overrides: dict[str, object], label: str
+) -> None:
+    fields: dict[str, object] = {
+        "is_founder_self_announcement": False,
+        "is_third_party_report": True,
+        "signal_kind": "new_company_report",
+        "company_name": "Metal",
+        "program": "YC",
+        "batch": "YC S26",
+        "evidence_quotes": ["Metal (YC S26)"],
+        "confidence": 0.9,
+        "reason": f"Reports YC S26 company Metal raising ({label})",
+        "noise_type": None,
+    }
+    fields.update(overrides)
+    classifier = classifier_with_result(SocialJudgement(**fields))
+    result = await classifier.classify(social_item(THIRD_PARTY_TEXT), set(), set(), set())
+    assert result.alert is None
+    assert result.persist
+    assert result.reason.startswith("gpt_rejected:")
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_requires_supported_evidence() -> None:
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Metal",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["a quote that appears nowhere in the post"],
+        confidence=0.9,
+        reason="Reports YC S26 company Metal raising funding",
+        noise_type=None,
+    ))
+    result = await classifier.classify(social_item(THIRD_PARTY_TEXT), set(), set(), set())
+    assert result.alert is None
+    assert result.reason.startswith("gpt_rejected:")
+
+
+@pytest.mark.asyncio
+async def test_contradictory_negative_stores_review_company() -> None:
+    text = "Harbor Labs (YC F26) just came out of stealth"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        company_name="Harbor Labs",
+        batch="YC F26",
+        confidence=0.9,
+        reason="The post clearly announces acceptance into YC F26 for Harbor Labs.",
+        noise_type=None,
+    ))
+    item = social_item(text)
+    result = await classifier.classify(item, set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:contradictory_verdict"
+    assert item.company_name == "Harbor Labs"
+
+
+@pytest.mark.asyncio
+async def test_contradictory_negative_ignores_generic_company() -> None:
+    text = "Our startup just got into YC, here is what we learned"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        company_name="startup",
+        batch="YC F26",
+        confidence=0.9,
+        reason="The post explicitly announces acceptance into YC.",
+        noise_type=None,
+    ))
+    item = social_item(text)
+    result = await classifier.classify(item, set(), set(), set())
+    assert result.reason == "gpt_review:contradictory_verdict"
+    assert item.company_name is None
+
+
 @pytest.mark.asyncio
 async def test_almanac_alias_and_handle_override_gpt() -> None:
     classifier = classifier_with_result(SocialJudgement(

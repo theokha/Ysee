@@ -25,6 +25,7 @@ def build_adapters(settings: Settings) -> tuple[list[SourceAdapter], list[Source
             settings.linkedin_total_posts,
             settings.linkedin_actor_id,
             settings.linkedin_actor_build_id,
+            settings.linkedin_window_hours,
         ),
     ]
     return official, social

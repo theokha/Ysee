@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -15,6 +15,10 @@ KNOWN_BUILD_IDS = frozenset({
     "tBATtQstpZt632roT",  # 0.0.104
 })
 APIFY_API_BASE = "https://api.apify.com/v2"
+# Posts older than this are dropped after fetch. The 8h cycle + 36h window
+# means every post is visible for at least 4 cycles before it expires, so a
+# single failed cycle cannot lose a signal permanently.
+LINKEDIN_WINDOW_HOURS_DEFAULT = 36
 DEFAULT_QUERIES = (
     '"got into YC" OR "accepted into YC" OR "joining YC"',
     '"backed by Y Combinator" OR "YC S26"',
@@ -52,7 +56,9 @@ def harvest_search_request(
     return {
         "searchQueries": selected,
         "maxPosts": per_query,
-        "postedLimit": "24h",
+        # Fetch a full week from the actor, then filter client-side to
+        # LINKEDIN_WINDOW_HOURS so posts between cycles are never missed.
+        "postedLimit": "week",
         "sortBy": "date",
         "profileScraperMode": "short",
         "scrapeComments": False,
@@ -78,11 +84,13 @@ class LinkedInAdapter:
         total_posts: int = 50,
         actor_id: str = ACTOR_ID,
         build_id: str = PINNED_BUILD_ID,
+        window_hours: int = 36,
     ) -> None:
         self.api_token = api_token
         self.total_posts = min(max(total_posts, 1), 100)
         self.actor_id = actor_id
         self.build_id = build_id
+        self.window_hours = window_hours
 
     async def collect(self, client: httpx.AsyncClient) -> CollectionResult:
         if not self.api_token:
@@ -114,10 +122,14 @@ class LinkedInAdapter:
                 f"Actor build {build_id or 'unknown'} returned no recognizable post records",
             )
         items: dict[str, CanonicalItem] = {}
+        cutoff = datetime.now(UTC) - timedelta(hours=self.window_hours)
         for record in records:
             item = normalize_post(record)
-            if item:
-                items[item.item_id] = item
+            if item is None:
+                continue
+            if item.published_at is not None and item.published_at < cutoff:
+                continue
+            items[item.item_id] = item
         values = list(items.values())[: self.total_posts]
         return CollectionResult(
             values,

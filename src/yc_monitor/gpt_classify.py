@@ -16,13 +16,31 @@ from yc_monitor.entity_resolver import CompanyHandleResolver
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Classification
 
 SYSTEM_PROMPT = """Classify a social post for an early YC or a16z Speedrun monitor.
-An alert requires ALL of these: the author speaks for the named company; this post currently
-announces accelerator acceptance or cohort participation; it is not merely a product launch; and
-company, program, and evidence are explicit in the post. Reject biographies, retrospectives,
-advice, jokes/satire, replies promoting an existing company, hiring, events, directories, news,
-third-party congratulations, quotes, summaries, speculation, and generic 'backed by YC' promotion.
-Separate a product from its owning company. Never invent a name, site, batch, or relationship.
-Evidence quotes must be exact short substrings from the post supporting the decision."""
+
+WHAT COUNTS (any of these is a signal - do not reject a post just because the author is not the
+founder, or because it reads like news):
+1. FIRST-PARTY ACCEPTANCE: the author announces their own company's YC/Speedrun acceptance.
+2. FIRST-PARTY LAUNCH: the author launches their company/product and names a YC batch or Speedrun.
+3. NEW-COMPANY REPORT: the post reports that a NAMED company is newly in YC/Speedrun or just
+   raised funding citing that accelerator - even from a news account, blog, or third party.
+   A startup becoming public knowledge is the signal; who posted it does not matter for this kind.
+
+WHAT DOES NOT COUNT (reject these):
+biographies and retrospectives ("my life so far", lessons learned, "2 months ago I left..."),
+advice threads, jokes/satire, hiring posts, event recaps/AMAs, program promotions (Insiders,
+fellowships, application lists), investors/funds announcing their own activities, quotes with no
+new company, directory/blog round-ups listing many companies, generic "YC-backed" promotion of an
+already-public company, rejections/application stories, speculation about unnamed startups.
+
+Rules:
+- Distinguish a PRODUCT from its owning COMPANY (e.g. "box by @asciidotdev" -> product box,
+  company Ascii). Never invent a name, site, batch, or relationship.
+- signal_kind MUST be one of: "first_party_acceptance", "first_party_launch",
+  "new_company_report", or "none".
+- For new_company_report, the company must be named and the accelerator named in the post.
+- Evidence quotes must be exact short substrings from the post.
+- When the post genuinely meets a WHAT COUNTS rule, say so - do not reject a real match for
+  being cautious. Rejecting a true positive is worse than a rare false accept."""
 
 
 class SocialJudgement(BaseModel):
@@ -35,6 +53,11 @@ class SocialJudgement(BaseModel):
     is_product_launch_only: bool = False
     is_retrospective: bool = False
     is_satire_or_joke: bool = False
+    is_third_party_report: bool = False
+    signal_kind: str = Field(
+        default="none",
+        description="first_party_acceptance | first_party_launch | new_company_report | none",
+    )
     company_name: str | None
     product_name: str | None = None
     company_handle: str | None = None
@@ -231,15 +254,51 @@ class GPTSocialClassifier:
                 for phrase in (
                     "explicitly announces acceptance",
                     "clearly announces acceptance",
+                    "fulfilling the criteria for a valid alert",
+                    "fulfilling all requirements",
+                    "fulfilling all criteria",
                     "current first-party acceptance",
                 )
             )
         )
         if contradictory_negative:
+            _store_review_company(item, company)
             result = Classification(None, "gpt_review:contradictory_verdict", judgement.confidence)
             await self._record(result)
             return result
         if not judgement.is_founder_self_announcement or judgement.confidence < self.min_confidence:
+            # The new prompt allows third-party reports of named new companies as
+            # a distinct signal kind; route those to a lower-urgency alert path
+            # instead of dropping them when the first-party gate fails.
+            if (
+                judgement.is_third_party_report
+                and judgement.signal_kind == "new_company_report"
+                and company_valid
+                and evidence_valid
+                and not judgement.is_retrospective
+                and not judgement.is_satire_or_joke
+                and judgement.confidence >= self.min_confidence
+            ):
+                item.company_name = company
+                if batch:
+                    item.batch = batch
+                official = suppress_official(item, official_names, official_hosts, official_handles)
+                if official:
+                    await self._record(official)
+                    return official
+                normalized = normalize_company(company)
+                result = Classification(
+                    Alert(
+                        AlertKind.EARLY_YC_LAUNCH,
+                        item,
+                        f"early:{normalized}",
+                        judgement.confidence,
+                    ),
+                    f"gpt_new_company_report:{judgement.reason[:150]}",
+                    judgement.confidence,
+                )
+                await self._record(result)
+                return result
             reason = reason_text or judgement.noise_type or "gpt_noise"
             result = Classification(None, f"gpt_rejected:{reason[:160]}", judgement.confidence)
             await self._record(result)
