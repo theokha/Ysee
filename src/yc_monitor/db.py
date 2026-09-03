@@ -8,7 +8,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from yc_monitor.models import AdapterHealth, Alert, CanonicalItem, alert_from_dict, alert_to_dict
+from yc_monitor.classify import normalize_company
+from yc_monitor.models import (
+    AdapterHealth,
+    Alert,
+    CanonicalItem,
+    Source,
+    alert_from_dict,
+    alert_to_dict,
+)
 
 YC_CATALOG_BOOTSTRAP_KEY = "yc_catalog_bootstrap_complete"
 SPEEDRUN_CATALOG_BOOTSTRAP_KEY = "speedrun_catalog_bootstrap_complete"
@@ -619,6 +627,15 @@ class Database:
                 """SELECT normalized_name, website_host, founder_handles, name_aliases
                    FROM yc_companies"""
             ).fetchall()
+            # Speedrun listings never reach yc_companies -- ingest_speedrun_directory
+            # only writes seen_items rows. Without these names a company already on
+            # a16z's public list still alerts as "not yet listed" (live: Baro, listed
+            # 2026-09-02, alerted 2026-09-03).
+            speedrun = db.execute(
+                """SELECT company_name FROM seen_items
+                   WHERE source = ? AND company_name IS NOT NULL""",
+                (Source.YC_SPEEDRUN.value,),
+            ).fetchall()
         names: set[str] = set()
         hosts = {row["website_host"] for row in rows if row["website_host"]}
         handles: set[str] = set()
@@ -631,6 +648,11 @@ class Database:
             if isinstance(aliases, list):
                 names.update(str(value) for value in aliases if value)
             handles.update(json.loads(row["founder_handles"] or "[]"))
+        names.update(
+            normalized
+            for row in speedrun
+            if (normalized := normalize_company(row["company_name"]))
+        )
         return names, hosts, handles
 
     def status(self) -> dict[str, Any]:

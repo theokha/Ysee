@@ -5,6 +5,7 @@ import pytest
 
 from yc_monitor.config import Settings
 from yc_monitor.db import Database
+from yc_monitor.gpt_classify import suppress_official
 from yc_monitor.models import AdapterHealth, CanonicalItem, CollectionResult, HealthStatus, Source
 from yc_monitor.pipeline import MonitorPipeline, ingest_speedrun_directory, ingest_yc_directory
 from yc_monitor.scheduler import (
@@ -77,6 +78,63 @@ def test_speedrun_first_fetch_baselines_then_alerts_new_company(tmp_path) -> Non
     alerts = ingest_speedrun_directory(db, CollectionResult([first, second], health))
     assert [alert.dedup_key for alert in alerts] == ["speedrun:speed two"]
     assert db.outbox_status("speedrun:speed two") == "pending"
+
+
+def test_speedrun_listed_company_counts_as_official(tmp_path) -> None:
+    """A Speedrun listing must suppress a later "not yet listed" social alert.
+
+    Live regression: Baro was on speedrun.a16z.com 2026-09-02 and still alerted
+    as unlisted on 2026-09-03, because official_identities() read yc_companies
+    only and Speedrun ingest never writes that table.
+    """
+    db = Database(str(tmp_path / "state.db"))
+    listed = CanonicalItem(
+        Source.YC_SPEEDRUN,
+        "baro",
+        "Baro",
+        "https://speedrun.a16z.com/companies/baro",
+        batch="a16z SR007",
+    )
+    health = AdapterHealth(Source.YC_SPEEDRUN, HealthStatus.OK, "fixture", 1)
+    ingest_speedrun_directory(db, CollectionResult([listed], health))
+
+    names, _, _ = db.official_identities()
+    assert "baro" in names
+
+    tweet = CanonicalItem(
+        Source.TWITTER,
+        "tweet-baro",
+        "Baro",
+        "https://x.com/brianyoungilcho/status/1",
+        content_text="I'm the co-founder and CEO of an a16z @speedrun-backed company",
+        founder_handle="brianyoungilcho",
+    )
+    suppressed = suppress_official(tweet, names, set(), set())
+    assert suppressed is not None
+    assert suppressed.reason == "company_already_official"
+
+
+def test_yc_catalog_names_still_suppress_after_speedrun_union(tmp_path) -> None:
+    """Merging Speedrun names must not disturb the YC directory identities."""
+    db = Database(str(tmp_path / "state.db"))
+    db.upsert_yc_company(
+        "almanac", "almanac", "Almanac", "usealmanac.com", ["janedoe"], {}, aliases=["almanac hq"]
+    )
+    speedrun = CanonicalItem(
+        Source.YC_SPEEDRUN,
+        "speed-1",
+        "Speed One",
+        "https://speedrun.a16z.com/companies/speed-one",
+    )
+    ingest_speedrun_directory(
+        db,
+        CollectionResult([speedrun], AdapterHealth(Source.YC_SPEEDRUN, HealthStatus.OK, "f", 1)),
+    )
+
+    names, hosts, handles = db.official_identities()
+    assert {"almanac", "almanac hq", "speed one"} <= names
+    assert hosts == {"usealmanac.com"}
+    assert handles == {"janedoe"}
 
 
 def test_speedrun_dry_run_does_not_consume_new_company(tmp_path) -> None:
