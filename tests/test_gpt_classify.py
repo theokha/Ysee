@@ -1012,3 +1012,134 @@ def test_batch_validity_follows_the_codes_own_shape(
     from yc_monitor.gpt_classify import _valid_batch
 
     assert _valid_batch(batch, program) is valid
+
+
+# --- company name from the author bio ---------------------------------------
+#
+# Brian Cho's post said only "an a16z @speedrun-backed company", but his X bio
+# read "Co-Founder & CEO @ Baro, a16z SR007". The name was in the payload we
+# collected and threw away, so the model had nothing to work with.
+
+
+CHO_BIO = "Co-Founder & CEO @ Baro, a16z SR007.\nBuilding AI General Manager for consumer brands."
+
+
+def bio_item(text: str, bio: str | None) -> CanonicalItem:
+    item = social_item(text)
+    item.author_bio = bio
+    return item
+
+
+def _bio_judgement(**overrides: object) -> SocialJudgement:
+    fields: dict[str, object] = {
+        "is_founder_self_announcement": True,
+        "is_first_party": True,
+        "is_current_announcement": True,
+        "is_accelerator_acceptance": True,
+        "company_name": "Baro",
+        "company_name_from_bio": True,
+        "company_handle": None,
+        "program": "Speedrun",
+        "batch": "SR007",
+        "evidence_quotes": ["I'm the co-founder and CEO of an a16z @speedrun-backed company"],
+        "confidence": 0.95,
+        "reason": "Co-founder announces a16z Speedrun backing; bio names the company",
+    }
+    fields.update(overrides)
+    return SocialJudgement(**fields)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_company_named_only_in_the_bio_is_alerted() -> None:
+    classifier = classifier_with_result(_bio_judgement())
+    item = bio_item(SPEEDRUN_NO_COMPANY_TEXT, CHO_BIO)
+    result = await classifier.classify(item, set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_SPEEDRUN_LAUNCH
+    assert result.alert.dedup_key == "early:baro"
+    assert item.company_name == "Baro"
+
+
+@pytest.mark.asyncio
+async def test_bio_sourced_name_must_actually_appear_in_the_bio() -> None:
+    """Nothing else grounds a bio name -- it is quoted from no post text."""
+    classifier = classifier_with_result(_bio_judgement(company_name="Fabricated"))
+    result = await classifier.classify(
+        bio_item(SPEEDRUN_NO_COMPANY_TEXT, CHO_BIO), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:company_not_found_in_bio"
+
+
+@pytest.mark.asyncio
+async def test_bio_sourced_name_is_rejected_when_there_is_no_bio() -> None:
+    classifier = classifier_with_result(_bio_judgement())
+    result = await classifier.classify(
+        bio_item(SPEEDRUN_NO_COMPANY_TEXT, None), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:company_not_found_in_bio"
+
+
+@pytest.mark.asyncio
+async def test_a_name_from_the_post_is_not_held_to_the_bio_check() -> None:
+    """company_name_from_bio false means the post named it; evidence covers that."""
+    text = "Today I'm announcing Kairo is backed by a16z @speedrun. SR007."
+    classifier = classifier_with_result(_bio_judgement(
+        company_name="Kairo", company_name_from_bio=False,
+        evidence_quotes=["Today I'm announcing Kairo is backed by a16z"],
+    ))
+    result = await classifier.classify(bio_item(text, CHO_BIO), set(), set(), set())
+    assert result.alert
+    assert result.alert.dedup_key == "early:kairo"
+
+
+@pytest.mark.asyncio
+async def test_bio_name_still_cannot_be_the_accelerator() -> None:
+    """The bio names a16z too; that must not become the company."""
+    classifier = classifier_with_result(_bio_judgement(company_name="a16z"))
+    result = await classifier.classify(
+        bio_item(SPEEDRUN_NO_COMPANY_TEXT, CHO_BIO), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:accelerator_named_as_company"
+
+
+@pytest.mark.asyncio
+async def test_bio_company_already_official_is_suppressed() -> None:
+    classifier = classifier_with_result(_bio_judgement())
+    result = await classifier.classify(
+        bio_item(SPEEDRUN_NO_COMPANY_TEXT, CHO_BIO), {"baro"}, set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "company_already_official"
+
+
+@pytest.mark.asyncio
+async def test_the_bio_is_sent_to_the_model() -> None:
+    """The model cannot use a bio it is never shown."""
+    classifier = classifier_with_result(_bio_judgement())
+    await classifier.classify(bio_item(SPEEDRUN_NO_COMPANY_TEXT, CHO_BIO), set(), set(), set())
+    sent = classifier.client.responses.parse.call_args.kwargs["input"][1]["content"]  # type: ignore[union-attr]
+    assert "Baro" in sent
+    assert "author_bio" in sent
+
+
+@pytest.mark.parametrize(
+    ("company", "bio", "grounded"),
+    [
+        ("Baro", CHO_BIO, True),
+        ("baro", CHO_BIO, True),           # case-insensitive
+        ("Baro AI", CHO_BIO, True),        # suffix stripped by normalize_company
+        ("Fabricated", CHO_BIO, False),
+        ("Baro", None, False),
+        ("Baro", "", False),
+        ("", CHO_BIO, False),
+    ],
+)
+def test_bio_grounding_compares_normalized_tokens(
+    company: str, bio: str | None, grounded: bool
+) -> None:
+    from yc_monitor.gpt_classify import _appears_in_bio
+
+    assert _appears_in_bio(company, bio) is grounded

@@ -22,6 +22,7 @@ from yc_monitor.adapters.twitter import (
     SEARCH_URL,
     TwitterAdapter,
     build_search_queries,
+    normalize_tweet,
     parse_tweet_timestamp,
 )
 from yc_monitor.adapters.yc_directory import (
@@ -521,3 +522,75 @@ def test_linkedin_queries_follow_configured_batch_codes() -> None:
 def test_linkedin_adapter_uses_configured_batches_in_request() -> None:
     adapter = LinkedInAdapter("token", total_posts=10, current_batches="s27,f28")
     assert adapter.queries[0] == '("(YC S27)" OR "(YC F28)")'
+
+
+# --- author bios ------------------------------------------------------------
+#
+# A founder often names their company only in their profile ("Co-Founder & CEO
+# @ Baro, a16z SR007") while the post says just "my company". Live payloads
+# carry that text; it used to be dropped at normalization.
+
+
+def test_tweet_carries_the_author_bio_from_the_nested_profile() -> None:
+    """Live payloads fill `profile_bio.description` and leave `description` blank."""
+    item = normalize_tweet({
+        "id": "1",
+        "text": "I'm the CEO of an a16z @speedrun-backed company.",
+        "author": {
+            "userName": "brianyoungilcho",
+            "name": "Brian Cho",
+            "description": "",
+            "profile_bio": {"description": "Co-Founder & CEO @ Baro, a16z SR007."},
+        },
+    })
+    assert item is not None
+    assert item.author_bio == "Co-Founder & CEO @ Baro, a16z SR007."
+
+
+def test_tweet_falls_back_to_the_flat_description() -> None:
+    item = normalize_tweet({
+        "id": "1",
+        "text": "We got into YC F26.",
+        "author": {"userName": "alice", "description": "Building Harbor."},
+    })
+    assert item is not None
+    assert item.author_bio == "Building Harbor."
+
+
+def test_tweet_without_any_bio_has_none_not_empty_string() -> None:
+    item = normalize_tweet({
+        "id": "1",
+        "text": "We got into YC F26.",
+        "author": {"userName": "alice", "description": "  ", "profile_bio": {"description": ""}},
+    })
+    assert item is not None
+    assert item.author_bio is None
+
+
+def test_linkedin_post_carries_the_author_headline() -> None:
+    """Apify returns the LinkedIn headline as `info`."""
+    item = normalize_post({
+        "type": "post",
+        "id": "7330988768578920448",
+        "linkedinUrl": "https://www.linkedin.com/posts/alice_123",
+        "content": "Big news about my company today!",
+        "author": {
+            "name": "Alice",
+            "publicIdentifier": "alice",
+            "info": "Co-Founder & CEO at Harbor | YC F26",
+        },
+    })
+    assert item is not None
+    assert item.author_bio == "Co-Founder & CEO at Harbor | YC F26"
+
+
+def test_linkedin_post_without_a_headline_has_no_bio() -> None:
+    item = normalize_post({
+        "type": "post",
+        "id": "1",
+        "linkedinUrl": "https://www.linkedin.com/posts/alice_123",
+        "content": "We got into YC S26!",
+        "author": {"name": "Alice", "publicIdentifier": "alice"},
+    })
+    assert item is not None
+    assert item.author_bio is None

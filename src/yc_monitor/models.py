@@ -41,6 +41,10 @@ class CanonicalItem:
     founder_name: str | None = None
     founder_handle: str | None = None
     author_url: str | None = None
+    # The author's profile bio. A founder often names their company only here
+    # ("Co-Founder & CEO @ Baro, a16z SR007") while the post itself says just
+    # "my company", so this is frequently the only place the name exists.
+    author_bio: str | None = None
     batch: str | None = None
     published_at: datetime | None = None
     raw: dict[str, Any] = field(default_factory=dict)
@@ -103,6 +107,7 @@ def alert_to_dict(alert: Alert) -> dict[str, Any]:
             "founder_name": item.founder_name,
             "founder_handle": item.founder_handle,
             "author_url": item.author_url,
+            "author_bio": item.author_bio,
             "batch": item.batch,
             "published_at": item.published_at.isoformat() if item.published_at else None,
             "raw": item.raw,
@@ -124,6 +129,7 @@ def alert_from_dict(payload: dict[str, Any]) -> Alert:
         founder_name=item_data.get("founder_name"),
         founder_handle=item_data.get("founder_handle"),
         author_url=item_data.get("author_url"),
+        author_bio=item_data.get("author_bio"),
         batch=item_data.get("batch"),
         published_at=datetime.fromisoformat(published) if published else None,
         raw=item_data.get("raw") or {},

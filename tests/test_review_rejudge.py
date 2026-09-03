@@ -559,3 +559,49 @@ def test_route_acks_review_immediately_and_schedules_background_work(tmp_path) -
         # The rejudge ran on the loop after the ack, not awaited inline.
         assert started.wait(5)
         release.set()
+
+
+def test_rejudged_item_recovers_the_author_bio_from_each_platform() -> None:
+    """`/yc review` rebuilds items from stored payloads; dropping the bio there
+    would hide the company name a founder gave only in their profile."""
+    tweet = _item_from_review_row({
+        "source": "twitter",
+        "item_id": "t1",
+        "canonical_url": "https://x.com/a/1",
+        "company_name": None,
+        "payload": json.dumps({
+            "text": "I'm the CEO of an a16z @speedrun-backed company.",
+            "author": {
+                "userName": "brianyoungilcho",
+                "description": "",
+                "profile_bio": {"description": "Co-Founder & CEO @ Baro, a16z SR007."},
+            },
+        }),
+    })
+    assert tweet is not None
+    assert tweet.author_bio == "Co-Founder & CEO @ Baro, a16z SR007."
+
+    post = _item_from_review_row({
+        "source": "linkedin",
+        "item_id": "l1",
+        "canonical_url": "https://linkedin.com/posts/1",
+        "company_name": None,
+        "payload": json.dumps({
+            "content": "Big news about my company today!",
+            "author": {"publicIdentifier": "alice", "info": "CEO at Harbor | YC F26"},
+        }),
+    })
+    assert post is not None
+    assert post.author_bio == "CEO at Harbor | YC F26"
+
+
+def test_rejudged_item_without_a_bio_has_none() -> None:
+    item = _item_from_review_row({
+        "source": "twitter",
+        "item_id": "t1",
+        "canonical_url": "https://x.com/a/1",
+        "company_name": None,
+        "payload": json.dumps({"text": "We got into YC F26.", "author": {"userName": "alice"}}),
+    })
+    assert item is not None
+    assert item.author_bio is None

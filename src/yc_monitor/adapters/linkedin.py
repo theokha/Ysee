@@ -245,6 +245,9 @@ def normalize_post(record: dict[str, Any]) -> CanonicalItem | None:
         founder_name=_first_string(author, "name"),
         founder_handle=_first_string(author, "publicIdentifier", "universalName"),
         author_url=_first_string(author, "linkedinUrl"),
+        # LinkedIn's headline, which Apify returns as `info`. Same role as an X
+        # bio: often the only place the founder's company is named.
+        author_bio=_first_string(author, "info", "headline", "occupation"),
         published_at=_date(
             _first_string(posted, "date", "timestamp", "iso", "dateTime")
         ),

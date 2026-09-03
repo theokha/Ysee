@@ -161,3 +161,22 @@ def test_speedrun_and_yc_launches_are_headlined_differently() -> None:
     assert "SPEEDRUN" in speedrun and "a16z" in str(blocks)
     assert "YC" in yc
     assert speedrun != yc
+
+
+def test_author_bio_survives_the_outbox_round_trip() -> None:
+    """A bio-sourced company name is only auditable if the bio makes the trip."""
+    from yc_monitor.models import alert_from_dict, alert_to_dict
+
+    item = _social_item(company_name="Baro")
+    item.author_bio = "Co-Founder & CEO @ Baro, a16z SR007."
+    restored = alert_from_dict(alert_to_dict(Alert(AlertKind.EARLY_SPEEDRUN_LAUNCH, item, "early:baro")))
+    assert restored.item.author_bio == "Co-Founder & CEO @ Baro, a16z SR007."
+
+
+def test_alert_payload_without_a_bio_still_loads() -> None:
+    """Rows written before author_bio existed must not break delivery."""
+    from yc_monitor.models import alert_from_dict, alert_to_dict
+
+    payload = alert_to_dict(Alert(AlertKind.EARLY_FOUNDER, _social_item(), "early:harbor"))
+    del payload["item"]["author_bio"]
+    assert alert_from_dict(payload).item.author_bio is None

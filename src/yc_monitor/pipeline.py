@@ -229,8 +229,18 @@ def _item_from_review_row(row: dict[str, Any]) -> CanonicalItem | None:
             author, "userName", "username", "publicIdentifier", lower=True, strip_at=True
         ),
         author_url=_author_field(author, "linkedinUrl", "url"),
+        # Without this a re-judged row loses the bio, so `/yc review` would
+        # never see the company name a founder gave only in their profile.
+        author_bio=_stored_author_bio(author),
         raw=payload,
     )
+
+
+def _stored_author_bio(author: dict[str, Any]) -> str | None:
+    """Recover the author bio from a stored payload, either platform's shape."""
+    from yc_monitor.adapters.twitter import author_bio
+
+    return author_bio(author) or _author_field(author, "info", "headline", "occupation")
 
 
 def _author_field(

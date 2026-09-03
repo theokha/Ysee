@@ -41,9 +41,13 @@ Rules:
 - Distinguish a PRODUCT from its owning COMPANY (e.g. "box by @asciidotdev" -> product box,
   company Ascii). Never invent a name, site, batch, or relationship.
 - company_name is the STARTUP, never the accelerator. "YC", "Y Combinator", "a16z",
-  "Speedrun" and "@speedrun" name the program that backs the company. If the post never
-  names the startup ("I'm the CEO of an a16z-backed company"), set company_name to null
-  rather than falling back to the program's name.
+  "Speedrun" and "@speedrun" name the program that backs the company. Never fall back to
+  the program's name.
+- When the post says "my company" without naming it, look in author_bio: a founder's bio
+  usually names it ("Co-Founder & CEO @ Baro, a16z SR007" -> company Baro). Take a name
+  from the bio only when the post is clearly about that same company, and set
+  company_name_from_bio true when you do. The bio may also supply the batch code. If
+  neither the post nor the bio names the startup, set company_name to null.
 - program names the accelerator: "YC" or "Speedrun". A YC batch looks like S26/W26/F26;
   a Speedrun batch looks like SR007. Report the batch the post actually gives, and let it
   match the program - never label an SR batch as YC or vice versa.
@@ -71,6 +75,9 @@ class SocialJudgement(BaseModel):
         description="first_party_acceptance | first_party_launch | new_company_report | none",
     )
     company_name: str | None
+    # Set when the name came from the author's bio rather than the post text,
+    # so evidence checks know not to look for it among the post's quotes.
+    company_name_from_bio: bool = False
     product_name: str | None = None
     company_handle: str | None = None
     program: str | None = None
@@ -274,10 +281,16 @@ class GPTSocialClassifier:
             speedrun_program and _explicit_speedrun_announcement(item.content_text)
         )
         accelerator_as_company = _names_the_accelerator(company, judgement.company_handle)
+        # A name lifted from the bio is not quoted in the post, so nothing else
+        # checks it -- confirm it really appears in the bio before trusting it.
+        bio_grounded = not judgement.company_name_from_bio or _appears_in_bio(
+            company, item.author_bio
+        )
         company_valid = (
             bool(company)
             and not GENERIC_COMPANY.fullmatch(company)
             and not accelerator_as_company
+            and bio_grounded
         )
 
         reason_text = judgement.reason.strip()
@@ -362,6 +375,7 @@ class GPTSocialClassifier:
             _store_review_company(item, company)
             failed = (
                 "accelerator_named_as_company" if accelerator_as_company
+                else "company_not_found_in_bio" if not bio_grounded
                 else "generic_or_missing_company" if not company_valid
                 else "unsupported_evidence" if not evidence_valid
                 else "invalid_or_missing_batch"
@@ -458,6 +472,7 @@ class GPTSocialClassifier:
                 "source": item.source.value,
                 "author_name": item.founder_name,
                 "author_handle": item.founder_handle,
+                "author_bio": (item.author_bio or "")[:300],
                 "existing_company": item.company_name,
                 "url": item.canonical_url,
                 "text": item.content_text[:3000],
@@ -546,6 +561,22 @@ def _names_the_accelerator(company: str | None, handle: str | None) -> bool:
     if company and normalize_company(company) in ACCELERATOR_NAMES:
         return True
     return bool(handle) and str(handle).lstrip("@").lower() in ACCELERATOR_HANDLES
+
+
+def _appears_in_bio(company: str, bio: str | None) -> bool:
+    """Whether a bio-sourced company name is actually in the bio.
+
+    Compared on normalized tokens so "Baro" matches "@ Baro," and "Baro AI"
+    matches a bio naming "Baro" -- `normalize_company` already strips
+    punctuation and suffixes like Inc/Labs/AI.
+    """
+    if not company or not bio:
+        return False
+    normalized = normalize_company(company)
+    if not normalized:
+        return False
+    bio_tokens = set(normalize_company(bio).split())
+    return bool(bio_tokens) and set(normalized.split()) <= bio_tokens
 
 
 def _is_speedrun_signal(judgement: SocialJudgement, speedrun_in_text: bool) -> bool:

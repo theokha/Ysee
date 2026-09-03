@@ -159,5 +159,22 @@ def normalize_tweet(tweet: dict[str, Any]) -> CanonicalItem | None:
         canonical_url=url, content_text=text, description=text,
         founder_name=name, founder_handle=handle or None,
         author_url=f"https://x.com/{handle}" if handle else None,
+        author_bio=author_bio(author),
         published_at=published, raw=tweet,
     )
+
+
+def author_bio(author: dict[str, Any]) -> str | None:
+    """The author's X bio, where founders routinely name their company.
+
+    Live payloads carry the text under `profile_bio.description` and leave the
+    top-level `description` blank, so the nested field is preferred and the flat
+    one kept as a fallback for other shapes of the API response.
+    """
+    profile_bio = author.get("profile_bio")
+    if isinstance(profile_bio, dict):
+        nested = profile_bio.get("description")
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+    flat = author.get("description")
+    return flat.strip() if isinstance(flat, str) and flat.strip() else None

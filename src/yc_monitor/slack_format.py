@@ -48,6 +48,7 @@ REASON_LABELS = {
     "unsupported_evidence": "Quoted evidence not found in the post",
     "invalid_or_missing_batch": "Batch code invalid or missing",
     "accelerator_named_as_company": "Named the accelerator, not the company",
+    "company_not_found_in_bio": "Company name is not in the author's bio",
     "unresolved_company_handle": "Could not verify the company handle",
     "unresolved_product_owner": "Could not tell who owns the product",
     "not_first_party": "Not posted by the founder",
