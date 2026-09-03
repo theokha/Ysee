@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import time
 from typing import Any
@@ -105,6 +106,33 @@ def verify_slack_signature(
 def slash_command_payload(body: bytes) -> dict[str, str]:
     parsed = parse_qs(body.decode(), keep_blank_values=True)
     return {key: values[0] if values else "" for key, values in parsed.items()}
+
+
+def interaction_payload(body: bytes) -> dict[str, Any]:
+    """Parse a Slack interactivity POST.
+
+    Interactions arrive form-encoded with the real content as a JSON string
+    under `payload`, unlike slash commands which are flat form fields. A
+    malformed body yields an empty dict so the route can ignore it rather than
+    500 -- Slack retries on error, and retrying a bad payload never succeeds.
+    """
+    parsed = parse_qs(body.decode(errors="replace"), keep_blank_values=True)
+    values = parsed.get("payload")
+    if not values or not values[0]:
+        return {}
+    try:
+        decoded = json.loads(values[0])
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def interaction_actions(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The actions a block_actions payload carries, defensively unpacked."""
+    actions = payload.get("actions")
+    if not isinstance(actions, list):
+        return []
+    return [action for action in actions if isinstance(action, dict)]
 
 
 # The slow actions (`/yc scan`, `scan dry`, `review`, `retry`) cannot finish

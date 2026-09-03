@@ -23,7 +23,13 @@ from yc_monitor.config import Settings, get_settings
 from yc_monitor.db import SCHEDULER_NEXT_RUN_KEY
 from yc_monitor.pipeline import MonitorPipeline
 from yc_monitor.scheduler import build_scheduler, job_next_run_iso, schedule_first_run
-from yc_monitor.slack_app import ACK_TEXTS, handle_slash_command, verify_slack_signature
+from yc_monitor.slack_app import (
+    ACK_TEXTS,
+    handle_slash_command,
+    interaction_actions,
+    interaction_payload,
+    verify_slack_signature,
+)
 from yc_monitor.slack_format import format_leads_blocks
 
 logger = logging.getLogger(__name__)
@@ -282,6 +288,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "blocks": format_leads_blocks(leads),
             }
         return JSONResponse(response)
+
+    @app.post("/slack/interactions")
+    async def slack_interactions(request: Request) -> JSONResponse:
+        """Receive block_actions payloads (button clicks) from Slack.
+
+        No buttons are wired yet, so every action is currently a no-op. The
+        endpoint exists first so the request URL can be registered and verified
+        in isolation: Slack rejects an app's interactivity config if the URL
+        does not already answer, and an unhandled action must return 200 rather
+        than error -- Slack retries on failure and shows the user a red warning.
+        """
+        if not settings.slack_signing_secret:
+            raise HTTPException(503, "Slack interactivity is not configured")
+        body = await request.body()
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+        if not verify_slack_signature(settings.slack_signing_secret, timestamp, body, signature):
+            raise HTTPException(401, "invalid Slack signature")
+        payload = interaction_payload(body)
+        user = payload.get("user")
+        user_id = user.get("id", "unknown") if isinstance(user, dict) else "unknown"
+        for action in interaction_actions(payload):
+            logger.info(
+                "Unhandled Slack interaction %r from user %s",
+                str(action.get("action_id") or ""),
+                user_id,
+            )
+        # An empty 200 leaves the source message untouched, which is what an
+        # unhandled action should do.
+        return JSONResponse({})
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
