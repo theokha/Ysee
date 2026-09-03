@@ -456,3 +456,68 @@ async def test_linkedin_failed_actor_status_is_coded() -> None:
     async with httpx.AsyncClient() as client:
         with pytest.raises(LinkedInCollectError, match="apify_actor_failed"):
             await adapter.collect(client)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_twitter_drops_replies_but_keeps_root_tweets() -> None:
+    """The `-filter:replies` search operator is ignored upstream; the adapter
+    must drop replies itself on the isReply flag."""
+    root = {
+        "id": "root-1",
+        "text": "We got into YC S26!",
+        "author": {"userName": "alice", "name": "Alice"},
+        "createdAt": "2026-09-01T12:00:00+00:00",
+        "isReply": False,
+    }
+    reply = {
+        "id": "reply-1",
+        "text": "@alice congrats on YC S26!",
+        "author": {"userName": "bob", "name": "Bob"},
+        "createdAt": "2026-09-01T13:00:00+00:00",
+        "isReply": True,
+        "inReplyToUsername": "alice",
+    }
+    unflagged = {
+        "id": "plain-1",
+        "text": "Thrilled to say we are joining YC S26",
+        "author": {"userName": "carol", "name": "Carol"},
+        "createdAt": "2026-09-01T14:00:00+00:00",
+    }
+    payload = {"tweets": [root, reply, unflagged], "next_cursor": ""}
+    respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json=payload))
+    async with httpx.AsyncClient() as client:
+        result = await TwitterAdapter("secret", 1, 7, "F26").collect(client)
+    assert [item.item_id for item in result.items] == ["root-1", "plain-1"]
+    assert result.health.item_count == 2
+
+
+def test_linkedin_queries_target_validated_signal_phrases() -> None:
+    """Live-validated 2026-09: batch tags are the announcement idiom on LinkedIn.
+
+    Q1 must use (YC batch) tags (the "got into YC" phrasing returned only
+    rejection stories); Q3 must not include the bare "a16z Speedrun" phrase
+    (matched VC job boards and event recaps, not announcements).
+    """
+    joined_q1 = DEFAULT_QUERIES[0]
+    assert '"(YC F26)"' in joined_q1
+    assert '"got into YC"' not in joined_q1
+    assert all("Speedrun" not in q for q in DEFAULT_QUERIES[:2])
+    assert '"a16z Speedrun"' not in DEFAULT_QUERIES[2]
+    assert '"Speedrun cohort"' in DEFAULT_QUERIES[2]
+
+
+def test_linkedin_queries_follow_configured_batch_codes() -> None:
+    from yc_monitor.adapters.linkedin import build_queries
+
+    queries = build_queries("F27,W28")
+    assert queries[0] == '("(YC F27)" OR "(YC W28)")'
+    assert queries[1:] == DEFAULT_QUERIES[1:]
+    # Unconfigured falls back to the validated defaults.
+    assert build_queries(None) == DEFAULT_QUERIES
+    assert build_queries("") == DEFAULT_QUERIES
+
+
+def test_linkedin_adapter_uses_configured_batches_in_request() -> None:
+    adapter = LinkedInAdapter("token", total_posts=10, current_batches="s27,f28")
+    assert adapter.queries[0] == '("(YC S27)" OR "(YC F28)")'

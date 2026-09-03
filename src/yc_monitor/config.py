@@ -55,8 +55,17 @@ class Settings(BaseSettings):
     openai_min_confidence: float = Field(default=0.65, ge=0, le=1)
     openai_review_min_confidence: float = Field(default=0.65, ge=0, le=1)
     openai_immediate_min_confidence: float = Field(default=0.9, ge=0, le=1)
-    openai_max_calls_per_cycle: int = Field(default=25, ge=0, le=200)
-    openai_max_calls_per_day: int = Field(default=100, ge=0, le=2000)
+
+    @property
+    def openai_thresholds_ordered(self) -> bool:
+        """min <= review <= immediate; the review band is meaningless otherwise."""
+        return (
+            self.openai_min_confidence
+            <= self.openai_review_min_confidence
+            <= self.openai_immediate_min_confidence
+        )
+    openai_max_calls_per_cycle: int = Field(default=100, ge=0, le=200)
+    openai_max_calls_per_day: int = Field(default=600, ge=0, le=2000)
     max_twitter_pages_per_day: int = Field(default=48, ge=0, le=500)
     max_linkedin_posts_per_day: int = Field(default=150, ge=0, le=2000)
     slack_ops_channel_id: str | None = None

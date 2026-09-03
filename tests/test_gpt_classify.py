@@ -637,3 +637,185 @@ async def test_gpt_stats_count_rejected_and_deferred() -> None:
     assert classifier.stats.rejected == 1
     assert classifier.stats.deferred == 1
     assert classifier.stats.accepted == 0
+
+
+# --- tuned gates: recall without reopening known noise ------------------------
+
+
+@pytest.mark.asyncio
+async def test_mixed_retrospective_with_current_news_reaches_the_model() -> None:
+    """Memory + news in one post must not die at the retrospective prefilter."""
+    text = (
+        "2 years ago we started building Harbor in a garage. "
+        "Today we're joining YC S26."
+    )
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Harbor",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Today we're joining YC S26"],
+        confidence=0.95,
+        reason="current acceptance",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is not None
+    assert result.alert.dedup_key == "early:harbor"
+    assert classifier.client
+    classifier.client.responses.parse.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_past_tense_biography_without_retrospective_marker_is_not_prefiltered() -> None:
+    """Past-tense biography with no retrospective trigger is the model's call, not the prefilter's."""
+    text = "I'm 30. I built GojiberryAI. Got accepted into YC. Here's what I learned."
+    judgement = SocialJudgement(
+        is_founder_self_announcement=False,
+        is_retrospective=True,
+        company_name="GojiberryAI",
+        program="YC",
+        batch=None,
+        evidence_quotes=["Got accepted into YC"],
+        confidence=0.8,
+        reason="autobiography, not an announcement",
+        noise_type="retrospective",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason.startswith("gpt_rejected")
+    # It reached the model rather than dying at the cheap prefilter.
+    assert classifier.client
+    classifier.client.responses.parse.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_backed_by_yc_with_current_joining_phrase_reaches_model() -> None:
+    text = "we're backed by YC and today we just got into YC W27 — hiring soon"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Gamma",
+        program="YC",
+        batch="YC W27",
+        evidence_quotes=["today we just got into YC W27"],
+        confidence=0.9,
+        reason="current",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is not None
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_below_immediate_threshold_goes_to_review() -> None:
+    text = "Breaking: Harbor just got into YC S26, sources say"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Harbor",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Harbor just got into YC S26"],
+        confidence=0.7,
+        reason="news report of new YC company",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:third_party_low_confidence"
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_at_immediate_threshold_with_batch_alerts() -> None:
+    text = "Breaking: Harbor just got into YC S26"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Harbor",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Harbor just got into YC S26"],
+        confidence=0.92,
+        reason="news report of new YC company",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is not None
+    assert result.alert.dedup_key == "early:harbor"
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_without_valid_batch_goes_to_review() -> None:
+    text = "Harbor just got into YC"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=False,
+        is_third_party_report=True,
+        signal_kind="new_company_report",
+        company_name="Harbor",
+        program="YC",
+        batch=None,
+        evidence_quotes=["Harbor just got into YC"],
+        confidence=0.95,
+        reason="news report",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:third_party_missing_batch"
+
+
+@pytest.mark.asyncio
+async def test_incidental_official_mention_does_not_suppress_first_party_alert() -> None:
+    """A founder tagging an unrelated official YC founder is not a duplicate."""
+    text = "Excited to announce we got into YC S26 to build Harbor! cc @officialguy"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Harbor",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["we got into YC S26"],
+        confidence=0.95,
+        reason="acceptance",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(
+        social_item(text), set(), set(), {"officialguy"}
+    )
+    assert result.alert is not None
+    assert result.alert.dedup_key == "early:harbor"
+
+
+@pytest.mark.asyncio
+async def test_candidate_company_handle_official_still_suppresses() -> None:
+    text = "Excited to announce we got into YC S26 to build Harbor!"
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Harbor",
+        company_handle="harbor",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["we got into YC S26"],
+        confidence=0.95,
+        reason="acceptance",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(
+        social_item(text), set(), set(), {"harbor"}
+    )
+    assert result.alert is None
+    assert result.reason == "company_handle_already_official"

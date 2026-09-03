@@ -91,7 +91,7 @@ def test_apply_runtime_settings_returns_identical_defaults_when_nothing_stored(t
 def test_apply_runtime_settings_overrides_stored_values(tmp_path) -> None:
     db = make_db(tmp_path)
     settings = make_settings(tmp_path)
-    assert settings.openai_max_calls_per_cycle == 25
+    assert settings.openai_max_calls_per_cycle == 100
     db.set_runtime_setting("openai_max_calls_per_cycle", "10")
     db.set_runtime_setting("twitter_current_batches", "s26, w27")
     db.set_runtime_setting("openai_min_confidence", "0.5")
@@ -102,7 +102,7 @@ def test_apply_runtime_settings_overrides_stored_values(tmp_path) -> None:
     assert applied.twitter_current_batches == "S26,W27"
     assert applied.openai_min_confidence == 0.5
     # The base settings object is untouched.
-    assert settings.openai_max_calls_per_cycle == 25
+    assert settings.openai_max_calls_per_cycle == 100
 
 
 def test_apply_runtime_settings_reverts_after_reset(tmp_path) -> None:
@@ -114,7 +114,7 @@ def test_apply_runtime_settings_reverts_after_reset(tmp_path) -> None:
     db.reset_runtime_setting("openai_max_calls_per_cycle")
     reverted = apply_runtime_settings(db, base)
     assert reverted == base
-    assert reverted.openai_max_calls_per_cycle == 25
+    assert reverted.openai_max_calls_per_cycle == 100
 
 
 def test_apply_runtime_settings_ignores_empty_string_stored_value(tmp_path) -> None:
@@ -135,11 +135,11 @@ def test_effective_value_prefers_stored_override(tmp_path) -> None:
     db = make_db(tmp_path)
     settings = make_settings(tmp_path)
     spec = SETTING_SPECS["openai_max_calls_per_cycle"]
-    assert effective_value(db, spec, settings) == 25
+    assert effective_value(db, spec, settings) == 100
     db.set_runtime_setting(spec.key, "7")
     assert effective_value(db, spec, settings) == 7
     db.reset_runtime_setting(spec.key)
-    assert effective_value(db, spec, settings) == 25
+    assert effective_value(db, spec, settings) == 100
 
 
 # --- format_config_block -----------------------------------------------------
@@ -163,7 +163,7 @@ def test_format_config_block_without_overrides_has_no_marker(tmp_path) -> None:
     db = make_db(tmp_path)
     settings = make_settings(tmp_path)
     rendered = format_config_block(db, settings)
-    assert "*GPT calls per cycle*: `25`" in rendered
+    assert "*GPT calls per cycle*: `100`" in rendered
     assert "runtime override active" in rendered  # legend always shown
 
 
@@ -393,7 +393,7 @@ async def test_override_applies_and_reverts_across_cycles(tmp_path, no_network) 
     pipeline.social_adapters = []
 
     first = await pipeline.run(dry_run=True)
-    assert first["gpt"]["max_calls"] == 25
+    assert first["gpt"]["max_calls"] == 100
 
     db = pipeline.db
     run_command("config set openai_max_calls_per_cycle 10", db)
@@ -401,16 +401,16 @@ async def test_override_applies_and_reverts_across_cycles(tmp_path, no_network) 
     assert second["gpt"]["max_calls"] == 10
     assert pipeline.settings.openai_max_calls_per_cycle == 10
     # Base settings stay pristine so a later reset can fall back to them.
-    assert base.openai_max_calls_per_cycle == 25
+    assert base.openai_max_calls_per_cycle == 100
 
     run_command("config reset openai_max_calls_per_cycle", db)
     third = await pipeline.run(dry_run=True)
-    assert third["gpt"]["max_calls"] == 25
-    assert pipeline.settings.openai_max_calls_per_cycle == 25
+    assert third["gpt"]["max_calls"] == 100
+    assert pipeline.settings.openai_max_calls_per_cycle == 100
     # The override cycle rebuilds with 10 and the reset cycle rebuilds back to
     # the .env default; the steady-state first cycle does not rebuild at all.
     rebuilt = [s.openai_max_calls_per_cycle for s in no_network[1:]]
-    assert rebuilt == [10, 25]
+    assert rebuilt == [10, 100]
 
 
 @pytest.mark.asyncio
@@ -421,7 +421,7 @@ async def test_override_reaches_live_gpt_classifier(tmp_path, no_network) -> Non
     pipeline.official_adapters = []
     pipeline.social_adapters = []
     classifier = pipeline.social_classifier
-    assert classifier.max_calls_per_cycle == 25
+    assert classifier.max_calls_per_cycle == 100
 
     run_command("config set openai_max_calls_per_cycle 4", pipeline.db)
     run_command("config set openai_min_confidence 0.4", pipeline.db)

@@ -268,6 +268,7 @@ class MonitorPipeline:
                 "openai_calls", self.settings.openai_max_calls_per_day
             ),
             company_resolver=TwitterCompanyResolver(settings.twitterapi_io_api_key),
+            review_min_confidence=settings.openai_review_min_confidence,
         )
 
     async def run(self, dry_run: bool = False) -> dict[str, object]:
@@ -275,6 +276,17 @@ class MonitorPipeline:
         # without a restart.
         previous = self.settings
         self.settings = apply_runtime_settings(self.db, self.base_settings)
+        if not self.settings.openai_thresholds_ordered:
+            # Keep the last coherent settings rather than silently alerting with
+            # an inverted band (review above immediate would queue everything).
+            logger.warning(
+                "Ignoring incoherent confidence thresholds (min=%s review=%s immediate=%s); "
+                "falling back to previous settings",
+                self.settings.openai_min_confidence,
+                self.settings.openai_review_min_confidence,
+                self.settings.openai_immediate_min_confidence,
+            )
+            self.settings = previous
         if self.settings != previous:
             # Rebuild only the adapters, which are cheap config carriers. The
             # GPT classifier is refreshed in place below so an injected test
@@ -450,6 +462,10 @@ class MonitorPipeline:
                     promoted_alerts.append(alert.dedup_key)
                     promoted_names.append(item.company_name or dedup_key)
                 self.db.resolve_review(dedup_key, "evidence", classification.reason)
+            elif classification.reason.startswith("gpt_review:"):
+                # The classifier still wants a human: replaying must not turn a
+                # second review verdict into a permanent rejection.
+                deferred += 1
             elif classification.persist:
                 if self.db.resolve_review(dedup_key, "rejected", classification.reason):
                     cleared += 1
@@ -479,6 +495,7 @@ class MonitorPipeline:
         if not isinstance(classifier, GPTSocialClassifier):
             return
         classifier.min_confidence = self.settings.openai_min_confidence
+        classifier.review_min_confidence = self.settings.openai_review_min_confidence
         classifier.immediate_min_confidence = self.settings.openai_immediate_min_confidence
         classifier.max_calls_per_cycle = self.settings.openai_max_calls_per_cycle
         current = classifier.stats

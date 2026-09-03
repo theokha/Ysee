@@ -61,3 +61,28 @@ def test_website_and_founder_handle_suppression() -> None:
     by_handle = classify_social(item("We got into YC S26!"), set(), set(), {"founder"})
     assert by_handle.alert is None
     assert by_handle.reason == "founder_already_official"
+
+
+# --- one-word official name subset matching -----------------------------------
+# Found in live rescans: "Nori Robotics (YC S26)" vs official "nori" (nori.ai)
+# was not suppressed because token matching required both names multi-token.
+
+
+def test_one_word_official_name_suppresses_longer_candidate() -> None:
+    assert matches_official_name("Nori Robotics", {"nori"})
+    assert matches_official_name("Nori Robotics Platform", {"nori"})
+
+
+def test_one_word_official_generic_word_does_not_suppress() -> None:
+    # "cloud" is not distinctive; a different "Cloud Systems" startup must alert.
+    assert not matches_official_name("Cloud Systems", {"cloud"})
+    assert not matches_official_name("Labs Venture", {"labs"})
+
+
+def test_short_one_word_official_name_does_not_suppress() -> None:
+    # Under the 4-char floor even distinctive-looking short names stay exact-only.
+    assert not matches_official_name("AIQ Systems", {"aiq"})
+
+
+def test_exact_match_still_shortest_path() -> None:
+    assert matches_official_name("nori", {"nori"})

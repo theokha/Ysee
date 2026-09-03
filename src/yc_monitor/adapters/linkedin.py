@@ -19,11 +19,26 @@ APIFY_API_BASE = "https://api.apify.com/v2"
 # means every post is visible for at least 4 cycles before it expires, so a
 # single failed cycle cannot lose a signal permanently.
 LINKEDIN_WINDOW_HOURS_DEFAULT = 36
+# Validated live (2026-09): on LinkedIn, current-batch companies announce via
+# the "(YC S26)" tag in ordinary posts, not "we got into YC" — that phrase
+# returns almost only rejection/pivot stories. Broad "a16z Speedrun" matched
+# VC job boards and event recaps; the action phrases alone return the real
+# cohort announcements. The first query's batch codes are injected from the
+# shared current-batches setting so both social adapters roll over together.
 DEFAULT_QUERIES = (
-    '"got into YC" OR "accepted into YC" OR "joining YC"',
-    '"backed by Y Combinator" OR "YC S26"',
-    '"got into Speedrun" OR "accepted into Speedrun" OR "a16z Speedrun" OR "YC Speedrun"',
+    '"(YC F26)" OR "(YC W27)" OR "(YC S27)"',
+    '"backed by Y Combinator"',
+    '"got into Speedrun" OR "accepted into Speedrun" OR "joining Speedrun" OR "Speedrun cohort"',
 )
+
+
+def build_queries(batches: Sequence[str] | str | None) -> tuple[str, ...]:
+    """DEFAULT_QUERIES with the first query rebuilt for the given batch codes."""
+    codes = [code.upper() for code in (batches.split(",") if isinstance(batches, str) else list(batches or [])) if code.strip()]
+    if not codes:
+        return DEFAULT_QUERIES
+    tag_clause = " OR ".join(f'"(YC {code})"' for code in codes)
+    return (f"({tag_clause})", *DEFAULT_QUERIES[1:])
 
 
 def allocate_query_max_posts(total_posts: int, query_count: int) -> list[int]:
@@ -85,12 +100,14 @@ class LinkedInAdapter:
         actor_id: str = ACTOR_ID,
         build_id: str = PINNED_BUILD_ID,
         window_hours: int = 36,
+        current_batches: Sequence[str] | str | None = None,
     ) -> None:
         self.api_token = api_token
         self.total_posts = min(max(total_posts, 1), 100)
         self.actor_id = actor_id
         self.build_id = build_id
         self.window_hours = window_hours
+        self.queries = build_queries(current_batches)
 
     async def collect(self, client: httpx.AsyncClient) -> CollectionResult:
         if not self.api_token:
@@ -123,14 +140,28 @@ class LinkedInAdapter:
             )
         items: dict[str, CanonicalItem] = {}
         cutoff = datetime.now(UTC) - timedelta(hours=self.window_hours)
+        undated: list[CanonicalItem] = []
         for record in records:
             item = normalize_post(record)
             if item is None:
                 continue
             if item.published_at is not None and item.published_at < cutoff:
                 continue
+            if item.published_at is None:
+                # A post whose date failed to parse used to pass the window
+                # unconditionally, letting arbitrarily stale posts through.
+                # Keep them, but only after every dated post in the window.
+                undated.append(item)
+                continue
             items[item.item_id] = item
-        values = list(items.values())[: self.total_posts]
+        # Newest-first so a budget cut drops the oldest posts, not the freshest;
+        # undated posts can't prove freshness, so they sort last.
+        dated = sorted(
+            items.values(),
+            key=lambda i: i.published_at or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        values = (dated + undated)[: self.total_posts]
         return CollectionResult(
             values,
             AdapterHealth(
@@ -150,7 +181,7 @@ class LinkedInAdapter:
                 f"{APIFY_API_BASE}/acts/{self.actor_id}/runs",
                 headers={"Authorization": f"Bearer {self.api_token}"},
                 params={"waitForFinish": 120},
-                json=harvest_search_request(self.total_posts, DEFAULT_QUERIES),
+                json=harvest_search_request(self.total_posts, self.queries),
                 timeout=135,
             )
         except httpx.TimeoutException as exc:

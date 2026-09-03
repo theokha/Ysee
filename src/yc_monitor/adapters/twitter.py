@@ -85,6 +85,14 @@ class TwitterAdapter:
                 for tweet in tweets:
                     if not isinstance(tweet, dict):
                         continue
+                    # Replies are half the stream and nearly all of its noise:
+                    # congratulations, "my landscaper got into YC" jokes, thread
+                    # banter. A founder announcing their own acceptance posts a
+                    # root tweet. The upstream `-filter:replies` operator is
+                    # silently ignored by this endpoint (verified live), so the
+                    # drop must happen here on the isReply flag.
+                    if tweet.get("isReply"):
+                        continue
                     item = normalize_tweet(tweet)
                     if item and (item.founder_handle or "") not in OFFICIAL_HANDLES:
                         items[item.item_id] = item

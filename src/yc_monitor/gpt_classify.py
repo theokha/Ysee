@@ -11,7 +11,12 @@ import openai
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
-from yc_monitor.classify import PROGRAM, classify_social, matches_official_name, normalize_company
+from yc_monitor.classify import (
+    PROGRAM,
+    classify_social,
+    matches_official_name,
+    normalize_company,
+)
 from yc_monitor.entity_resolver import CompanyHandleResolver
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Classification
 
@@ -106,6 +111,15 @@ CURRENT_ANNOUNCEMENT = re.compile(
     r"we (?:just )?got into|accepted into|selected for)\b",
     re.IGNORECASE,
 )
+# Phrases that cannot coexist with a past-tense narrative. `accepted into` and
+# `selected for` are deliberately absent: "I got accepted into YC" reads as
+# biography just as easily as announcement, so they don't rescue a post from the
+# retrospective prefilter on their own.
+STRONG_CURRENT_ANNOUNCEMENT = re.compile(
+    r"\b(today|just|excited to announce|thrilled to announce|we(?:'|’)re joining|"
+    r"we (?:just )?got into)\b",
+    re.IGNORECASE,
+)
 
 
 class SocialJudge(Protocol):
@@ -176,11 +190,19 @@ class GPTSocialClassifier:
         daily_budget_check: Callable[[], bool] | None = None,
         company_resolver: CompanyHandleResolver | None = None,
         client: AsyncOpenAI | None = None,
+        review_min_confidence: float | None = None,
     ) -> None:
         self.enabled = bool(api_key)
         self.model = model
         self.max_retries = max_retries
         self.min_confidence = min_confidence
+        # A review band below `immediate` was always intended (config carries it),
+        # but nothing read it: every accepted-but-below-immediate judgement landed
+        # in review regardless. Default the band to `min_confidence` so existing
+        # deployments keep their current behavior until they raise it.
+        self.review_min_confidence = (
+            min_confidence if review_min_confidence is None else review_min_confidence
+        )
         self.immediate_min_confidence = immediate_min_confidence
         self.max_calls_per_cycle = max_calls_per_cycle
         self.daily_budget_check = daily_budget_check
@@ -286,6 +308,20 @@ class GPTSocialClassifier:
                 if official:
                     await self._record(official)
                     return official
+                if judgement.confidence < self.immediate_min_confidence or not valid_batch:
+                    # Third-party reports used to alert at the general floor with
+                    # no batch check, the loosest path in the pipeline. Below the
+                    # immediate bar (or without program/batch evidence) a human
+                    # should confirm before Slack fires.
+                    _store_review_company(item, company)
+                    reason = (
+                        "gpt_review:third_party_low_confidence"
+                        if judgement.confidence < self.immediate_min_confidence
+                        else "gpt_review:third_party_missing_batch"
+                    )
+                    result = Classification(None, reason, judgement.confidence)
+                    await self._record(result)
+                    return result
                 normalized = normalize_company(company)
                 result = Classification(
                     Alert(
@@ -293,6 +329,7 @@ class GPTSocialClassifier:
                         item,
                         f"early:{normalized}",
                         judgement.confidence,
+                        reason=f"gpt_new_company_report:{judgement.reason[:150]}",
                     ),
                     f"gpt_new_company_report:{judgement.reason[:150]}",
                     judgement.confidence,
@@ -319,6 +356,14 @@ class GPTSocialClassifier:
             result = Classification(None, f"gpt_review:{failed}", judgement.confidence)
             await self._record(result)
             return result
+        if judgement.confidence < self.review_min_confidence:
+            # Below the review band the judgement is not worth a human's time:
+            # reject outright instead of queuing low-confidence noise.
+            result = Classification(
+                None, f"gpt_rejected:{reason_text[:160] or 'low_confidence'}", judgement.confidence
+            )
+            await self._record(result)
+            return result
         if judgement.confidence < self.immediate_min_confidence:
             _store_review_company(item, company)
             reason = "gpt_review:" + (judgement.reason.strip() or "needs_review")
@@ -342,11 +387,13 @@ class GPTSocialClassifier:
         if official:
             await self._record(official)
             return official
-        mentioned = {value.lower() for value in MENTIONED_HANDLE.findall(item.content_text)}
         company_handle = (judgement.company_handle or "").lstrip("@").lower()
-        if company_handle:
-            mentioned.add(company_handle)
-        if mentioned & {value.lower() for value in official_handles}:
+        official_lower = {value.lower() for value in official_handles}
+        # A founder tagging any already-official account used to suppress the
+        # post outright. Only the candidate company's own handle proves it is
+        # already official; incidental mentions of other official handles are
+        # not evidence either way.
+        if company_handle and company_handle in official_lower:
             result = Classification(None, "company_handle_already_official", 0.0)
             await self._record(result)
             return result
@@ -364,6 +411,8 @@ class GPTSocialClassifier:
                 await self._record(result)
                 return result
         elif judgement.product_name and company_handle:
+            # No resolver configured: a distinct product and company handle means
+            # ownership is unverified, so park it for a human instead of alerting.
             _store_review_company(item, company)
             result = Classification(None, "gpt_review:unresolved_product_owner", judgement.confidence)
             await self._record(result)
@@ -377,6 +426,7 @@ class GPTSocialClassifier:
                 item,
                 f"early:{normalized}",
                 judgement.confidence,
+                reason=f"gpt_confirmed:{judgement.reason[:160]}",
             ),
             f"gpt_confirmed:{judgement.reason[:160]}",
             judgement.confidence,
@@ -435,12 +485,17 @@ def cheap_prefilter(
         return Classification(None, "founder_already_official", 0.0)
     if not PROGRAM.search(text):
         return Classification(None, "missing_program_reference", 0.0)
-    if RETROSPECTIVE.search(text):
+    if RETROSPECTIVE.search(text) and not STRONG_CURRENT_ANNOUNCEMENT.search(text):
+        # A post may mix memory and news ("2 years ago we started; today we're
+        # joining YC"). Only reject retrospective language that never pairs with
+        # a strong current-announcement phrase — otherwise let the model judge it.
         return Classification(None, "retrospective_not_current_announcement", 0.0)
     invalid_batch = re.search(r"\bYC\s+([A-Z]\d{2})\b", text, re.IGNORECASE)
     if invalid_batch and not VALID_YC_BATCH.fullmatch(f"YC {invalid_batch.group(1)}"):
         return Classification(None, "invalid_yc_batch_code", 0.0)
-    if re.search(r"\bbacked by yc\b", text, re.IGNORECASE) and not CURRENT_ANNOUNCEMENT.search(text):
+    if re.search(r"\bbacked by yc\b", text, re.IGNORECASE) and not (
+        STRONG_CURRENT_ANNOUNCEMENT.search(text) or re.search(r"\bwe(?:'|’)re (?:in|part of)\b", text, re.IGNORECASE)
+    ):
         return Classification(None, "yc_affiliation_without_current_acceptance", 0.0)
     return None
 

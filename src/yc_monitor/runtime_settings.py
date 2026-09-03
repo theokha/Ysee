@@ -118,9 +118,10 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         ),
         SettingSpec(
             "twitter_current_batches",
-            "X batch codes",
+            "Current batch codes",
             _to_batches,
-            "Comma-separated YC batch codes for X queries, e.g. F26,W27,S27.",
+            "Comma-separated YC batch codes driving X queries and the LinkedIn "
+            "batch-tag search, e.g. F26,W27,S27.",
             "twitter_current_batches",
         ),
         SettingSpec(

@@ -69,11 +69,61 @@ def matches_official_name(company: str | None, official_names: set[str]) -> bool
         return False
     for official in official_names:
         official_tokens = official.split()
-        if len(official_tokens) < 2 or len(official) < MIN_FUZZY_CHARS:
-            continue
-        if _strong_token_match(tokens, official_tokens, normalized, official):
+        if len(official_tokens) >= 2 and len(official) >= MIN_FUZZY_CHARS:
+            if _strong_token_match(tokens, official_tokens, normalized, official):
+                return True
+        # A one-word official name is usually a distinctive brand ("nori",
+        # "stripe"), so its appearance as a whole token of a longer candidate
+        # ("nori robotics") is strong evidence of the same company. Generic
+        # words are excluded; short official names must clear a higher bar.
+        elif official_tokens and _distinctive_token(official) and official in tokens:
             return True
     return False
+
+
+def _distinctive_token(word: str) -> bool:
+    """A one-word official name distinctive enough to anchor a subset match."""
+    return len(word) >= 4 and word not in NON_DISTINCTIVE_TOKENS
+
+
+# Words too generic to identify a company when they appear inside a longer
+# candidate name. Kept lowercase; matched against normalized tokens.
+NON_DISTINCTIVE_TOKENS = frozenset({
+    "about", "access", "applied", "apps", "bank", "base", "basic", "beta",
+    "block", "brand", "build", "business", "capital", "care", "cash", "center",
+    "chief", "clean", "cloud", "code", "commerce", "common", "connect",
+    "contact", "content", "control", "core", "craft", "create", "credit",
+    "data", "deal", "deals", "design", "desk", "dev", "digital", "direct",
+    "domain", "drive", "dynamic", "earth", "engine", "energy", "events",
+    "every", "exchange", "express", "factory", "finance", "find", "first",
+    "flow", "focus", "food", "forge", "found", "free", "fresh", "front",
+    "future", "global", "goal", "goes", "graph", "green", "group", "growth",
+    "guide", "hack", "hand", "health", "hello", "help", "home", "house",
+    "ideas", "index", "inner", "input", "inside", "insight", "invest",
+    "issue", "items", "joint", "journey", "keep", "know", "labs", "land",
+    "legal", "level", "light", "lines", "links", "local", "logic", "long",
+    "look", "love", "made", "magic", "mail", "make", "market", "master",
+    "matter", "media", "meet", "member", "metrics", "minds", "mobile",
+    "model", "money", "month", "music", "nature", "network", "next", "note",
+    "notes", "number", "offer", "office", "one", "online", "open", "order",
+    "output", "pace", "page", "parts", "path", "pay", "people", "phone",
+    "photo", "place", "plan", "point", "power", "press", "price", "prime",
+    "print", "private", "product", "profile", "project", "public", "pure",
+    "quality", "quantum", "quest", "quick", "ready", "real", "record",
+    "red", "rent", "research", "resort", "retail", "right", "rise", "robot",
+    "rocket", "root", "route", "safe", "sales", "sample", "scale", "scan",
+    "science", "search", "secure", "seed", "send", "server", "service",
+    "share", "shift", "ship", "shop", "signal", "simple", "site", "smart",
+    "social", "soft", "solar", "sound", "space", "spark", "special", "speed",
+    "spot", "stack", "stage", "stand", "start", "state", "store", "story",
+    "study", "style", "suite", "super", "supply", "support", "sure", "switch",
+    "sync", "system", "talk", "task", "team", "tech", "terms", "test", "text",
+    "think", "time", "tools", "top", "total", "touch", "track", "trade",
+    "trail", "train", "travel", "true", "trust", "type", "unit", "value",
+    "venture", "video", "view", "vision", "voice", "wallet", "want", "watch",
+    "water", "wave", "ways", "week", "white", "works", "world", "write",
+    "yield", "young", "zone",
+})
 
 
 def extract_company(text: str) -> str | None:
@@ -123,6 +173,7 @@ def classify_social(
         item,
         f"early:{normalized}",
         min(confidence, 1.0),
+        reason="founder_self_announcement",
     )
     return Classification(alert, "founder_self_announcement", alert.confidence)
 
