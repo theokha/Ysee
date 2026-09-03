@@ -72,7 +72,7 @@ RETROSPECTIVE = re.compile(
 )
 GENERIC_COMPANY = re.compile(
     r"^(?:the\s+)?(?:our\s+)?(?:startup|company|ai company|healthcare company|"
-    r"generational healthcare company|product|project|team)$",
+    r"generational healthcare company|product|project|team|ai)$",
     re.IGNORECASE,
 )
 VALID_YC_BATCH = re.compile(r"^(?:YC\s*)?[SWF]\d{2}$", re.IGNORECASE)
@@ -245,11 +245,13 @@ class GPTSocialClassifier:
             await self._record(result)
             return result
         if not judgement.is_complete_announcement:
+            _store_review_company(item, company)
             reason = _incomplete_reason(judgement)
             result = Classification(None, f"gpt_review:{reason}", judgement.confidence)
             await self._record(result)
             return result
         if not company_valid or not evidence_valid or not valid_batch:
+            _store_review_company(item, company)
             failed = (
                 "generic_or_missing_company" if not company_valid
                 else "unsupported_evidence" if not evidence_valid
@@ -259,6 +261,7 @@ class GPTSocialClassifier:
             await self._record(result)
             return result
         if judgement.confidence < self.immediate_min_confidence:
+            _store_review_company(item, company)
             reason = "gpt_review:" + (judgement.reason.strip() or "needs_review")
             result = Classification(None, reason[:180], judgement.confidence, persist=True)
             await self._record(result)
@@ -297,10 +300,12 @@ class GPTSocialClassifier:
                 await self._record(result)
                 return result
             if resolution is None:
+                _store_review_company(item, company)
                 result = Classification(None, "gpt_review:unresolved_company_handle", judgement.confidence)
                 await self._record(result)
                 return result
         elif judgement.product_name and company_handle:
+            _store_review_company(item, company)
             result = Classification(None, "gpt_review:unresolved_product_owner", judgement.confidence)
             await self._record(result)
             return result
@@ -410,6 +415,17 @@ def _valid_batch(batch: str, program: str | None) -> bool:
     if "speedrun" in normalized_program or "speedrun" in batch.lower() or batch.upper().startswith("SR"):
         return bool(VALID_SPEEDRUN_BATCH.fullmatch(batch.strip()))
     return bool(VALID_YC_BATCH.fullmatch(batch.strip()))
+
+
+def _store_review_company(item: CanonicalItem, company: str) -> None:
+    """Carry the extracted name onto review rows so /yc leads labels them.
+
+    Without this the review row keeps the adapter's NULL company_name and renders
+    as a bare "X post"/"LinkedIn post". Only a real name is stored: a generic
+    label is exactly why the row went to review in the first place.
+    """
+    if company and not GENERIC_COMPANY.fullmatch(company):
+        item.company_name = company
 
 
 def _incomplete_reason(judgement: SocialJudgement) -> str:

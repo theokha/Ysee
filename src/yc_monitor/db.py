@@ -17,6 +17,20 @@ LAST_GPT_STATS_KEY = "last_gpt_stats"
 LAST_USAGE_KEY = "last_usage"
 SCHEDULER_NEXT_RUN_KEY = "scheduler_next_run"
 
+# Verified false positives that were genuinely delivered to Slack before the
+# classifier hardening (2026-09-02 UTC). They stay in seen_items for the audit
+# trail but drop out of /yc leads, which only renders the four live dispositions.
+ARCHIVED_NOISE_KEYS = frozenset(
+    {
+        "early:gojiberryai",
+        "early:generational healthcare",
+        "early:trylightning",
+        "early:wildcard ai",
+        "early:gitnexus akon",
+        "early:box",
+    }
+)
+
 
 class Database:
     def __init__(self, path: str) -> None:
@@ -198,6 +212,23 @@ class Database:
                 (key,),
             ).fetchone()
         return str(row["dedup_key"]) if row else None
+
+    def archive_known_noise(self) -> int:
+        """Park verified false positives so /yc leads stops resurfacing them.
+
+        Rows are never deleted, so a future official-catalog upgrade can still
+        see their history; only live alert dispositions are moved, which makes a
+        second call a no-op.
+        """
+        placeholders = ",".join("?" for _ in ARCHIVED_NOISE_KEYS)
+        with self.connect() as db:
+            cursor = db.execute(
+                f"""UPDATE seen_items SET disposition='archived'
+                    WHERE dedup_key IN ({placeholders})
+                      AND disposition IN ('alerted', 'pending')""",
+                tuple(sorted(ARCHIVED_NOISE_KEYS)),
+            )
+            return int(cursor.rowcount)
 
     def recent_leads(self, limit: int = 10) -> list[dict[str, Any]]:
         with self.connect() as db:

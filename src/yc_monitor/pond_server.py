@@ -91,6 +91,12 @@ def manifest() -> dict[str, Any]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     pipeline = MonitorPipeline(settings)
+    try:
+        archived = pipeline.db.archive_known_noise()
+        if archived:
+            logger.info("Archived %d known-noise alert(s) at startup", archived)
+    except Exception:
+        logger.exception("Failed to archive known-noise alerts; continuing startup")
     scheduler = build_scheduler(pipeline, settings.poll_interval_hours)
 
     def _persist_next_run(_event: object | None = None) -> None:
