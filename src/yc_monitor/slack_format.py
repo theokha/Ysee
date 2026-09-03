@@ -389,10 +389,45 @@ def format_leads_blocks(leads: list[dict[str, Any]]) -> list[dict[str, object]]:
         lines.extend(_overflow_note(len(all_review), len(review)))
         sections.append("\n".join(lines))
 
-    return [
-        {"type": "header", "text": {"type": "plain_text", "text": "Recent leads"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(sections)}},
+    blocks: list[dict[str, object]] = [
+        {"type": "header", "text": {"type": "plain_text", "text": "Recent leads"}}
     ]
+    for section in sections:
+        blocks.extend(_section_blocks(section))
+    return blocks
+
+
+# Slack rejects the whole response if any section's text exceeds this, which
+# fails the slash command outright rather than degrading. Long post URLs plus
+# excerpts clear it easily, so sections are split across blocks instead.
+SECTION_TEXT_MAX = 3000
+
+
+def _section_blocks(text: str) -> list[dict[str, object]]:
+    """Split one section into as many blocks as the character cap requires.
+
+    Splits on line boundaries so a row and its excerpt are never cut mid-link;
+    a single line longer than the cap is truncated as a last resort.
+    """
+    blocks: list[dict[str, object]] = []
+    chunk: list[str] = []
+    length = 0
+    for line in text.split("\n"):
+        if len(line) > SECTION_TEXT_MAX:
+            line = _truncate(line, SECTION_TEXT_MAX)
+        # +1 for the newline that will rejoin this line to the chunk.
+        if chunk and length + len(line) + 1 > SECTION_TEXT_MAX:
+            blocks.append(_mrkdwn_section("\n".join(chunk)))
+            chunk, length = [], 0
+        chunk.append(line)
+        length += len(line) + 1
+    if chunk:
+        blocks.append(_mrkdwn_section("\n".join(chunk)))
+    return blocks
+
+
+def _mrkdwn_section(text: str) -> dict[str, object]:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def _grouped_by_day(

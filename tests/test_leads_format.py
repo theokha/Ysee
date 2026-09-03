@@ -575,3 +575,76 @@ def test_utc_midnight_rows_group_by_local_day() -> None:
     ]
     rendered = _text(format_leads_blocks(leads))
     assert rendered.count("<!date^") == 1
+
+
+def test_long_lead_list_splits_instead_of_exceeding_slacks_cap() -> None:
+    """Slack rejects the whole response if a section's text exceeds 3000 chars.
+
+    That fails the slash command with invalid_command_response rather than
+    degrading, so long post URLs plus excerpts must split across blocks.
+    """
+    from yc_monitor.slack_format import SECTION_TEXT_MAX
+
+    leads = [
+        _lead(
+            f"early:company{index}",
+            "linkedin",
+            str(index),
+            "alerted",
+            company_name=f"Company{index}",
+            canonical_url=(
+                "https://www.linkedin.com/posts/some-quite-long-author-handle-39230521a"
+                f"_a-long-slug-describing-the-post-activity-750089676809256{index:04d}-bMPi"
+            ),
+            author_handle="some-quite-long-author-handle-39230521a",
+            snippet="If you own the inference for your model you own the margin. " * 2,
+            alerted_at=f"2026-09-0{index % 3 + 1}T12:00:00+00:00",
+        )
+        for index in range(10)
+    ]
+    blocks = format_leads_blocks(leads)
+    assert len(blocks) > 2, "expected the oversized section to split"
+    for block in blocks:
+        text = block.get("text")
+        assert isinstance(text, dict)
+        assert len(str(text["text"])) <= SECTION_TEXT_MAX
+    # Splitting must not drop rows.
+    rendered = _text(blocks)
+    for index in range(10):
+        assert f"Company{index}" in rendered
+
+
+def test_short_lead_list_stays_in_one_section() -> None:
+    """Splitting is a pressure valve, not the normal path."""
+    leads = [
+        _lead(
+            "yc:acme",
+            "yc_directory",
+            "acme",
+            "alerted",
+            company_name="Acme",
+            alerted_at="2026-09-03T12:00:00+00:00",
+        ),
+    ]
+    blocks = format_leads_blocks(leads)
+    assert [block["type"] for block in blocks] == ["header", "section"]
+
+
+def test_a_single_unsplittable_line_is_truncated() -> None:
+    """One pathological row must not blow the cap on its own."""
+    from yc_monitor.slack_format import SECTION_TEXT_MAX
+
+    leads = [
+        _lead(
+            "early:huge",
+            "twitter",
+            "1",
+            "alerted",
+            company_name="X" * 4000,
+            alerted_at="2026-09-03T12:00:00+00:00",
+        ),
+    ]
+    for block in format_leads_blocks(leads):
+        text = block.get("text")
+        assert isinstance(text, dict)
+        assert len(str(text["text"])) <= SECTION_TEXT_MAX
