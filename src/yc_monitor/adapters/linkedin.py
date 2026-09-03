@@ -103,17 +103,18 @@ class LinkedInAdapter:
                 f"Apify actor run ended with status {status or 'unknown'}",
             )
         build_id = str(run.get("buildId") or "")
-        if build_id not in KNOWN_BUILD_IDS | {self.build_id}:
-            raise LinkedInCollectError(
-                "apify_build_drift",
-                f"Apify actor build changed to {build_id or 'unknown'}; review schema before continuing",
-            )
         dataset_id = str(run.get("defaultDatasetId") or "")
         if not dataset_id:
             raise LinkedInCollectError("apify_dataset_missing", "Apify actor run did not return a dataset")
 
+        records = await self._dataset_items(client, dataset_id)
+        if records and not any(normalize_post(record) for record in records):
+            raise LinkedInCollectError(
+                "apify_schema_drift",
+                f"Actor build {build_id or 'unknown'} returned no recognizable post records",
+            )
         items: dict[str, CanonicalItem] = {}
-        for record in await self._dataset_items(client, dataset_id):
+        for record in records:
             item = normalize_post(record)
             if item:
                 items[item.item_id] = item

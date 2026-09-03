@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -13,25 +14,69 @@ from pydantic import BaseModel, ConfigDict, Field
 from yc_monitor.classify import PROGRAM, classify_social, matches_official_name, normalize_company
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Classification
 
-SYSTEM_PROMPT = """You classify social posts for an early YC or a16z Speedrun founder monitor.
-A positive means the author is currently announcing their own named company's YC or Speedrun
-acceptance, participation, or launch as a newly accepted company. Accept natural wording such as
-"we're YC S26" or "today we're launching X (YC S26)" only when it is clearly first-party and the
-company name is explicit in the post. Reject applications, interviews, rejections, hiring, events,
-directories, news, aggregators, third-party congratulations, quotes, replies that merely recount a
-past acceptance, retrospective stories, speculation, and already-known-company chatter. A positive
-must include a supported company_name; never infer one from unrelated words. Be conservative."""
+SYSTEM_PROMPT = """Classify a social post for an early YC or a16z Speedrun monitor.
+An alert requires ALL of these: the author speaks for the named company; this post currently
+announces accelerator acceptance or cohort participation; it is not merely a product launch; and
+company, program, and evidence are explicit in the post. Reject biographies, retrospectives,
+advice, jokes/satire, replies promoting an existing company, hiring, events, directories, news,
+third-party congratulations, quotes, summaries, speculation, and generic 'backed by YC' promotion.
+Separate a product from its owning company. Never invent a name, site, batch, or relationship.
+Evidence quotes must be exact short substrings from the post supporting the decision."""
 
 
 class SocialJudgement(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_founder_self_announcement: bool
+    is_first_party: bool = False
+    is_current_announcement: bool = False
+    is_accelerator_acceptance: bool = False
+    is_product_launch_only: bool = False
+    is_retrospective: bool = False
+    is_satire_or_joke: bool = False
     company_name: str | None
+    product_name: str | None = None
+    company_handle: str | None = None
+    program: str | None = None
     batch: str | None
+    evidence_quotes: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=1)
     reason: str
-    noise_type: str | None
+    noise_type: str | None = None
+
+    @property
+    def is_complete_announcement(self) -> bool:
+        return all((
+            self.is_founder_self_announcement,
+            self.is_first_party,
+            self.is_current_announcement,
+            self.is_accelerator_acceptance,
+            not self.is_product_launch_only,
+            not self.is_retrospective,
+            not self.is_satire_or_joke,
+            bool(self.company_name and self.company_name.strip()),
+            bool(self.evidence_quotes),
+        ))
+
+
+RETROSPECTIVE = re.compile(
+    r"\b(my life so far|years? ago|when we got into|i remember when|looking back|"
+    r"if i (?:had to )?start(?:ed)? (?:again|from 0)|got accepted into yc\.\s*if i)\b",
+    re.IGNORECASE,
+)
+GENERIC_COMPANY = re.compile(
+    r"^(?:the\s+)?(?:our\s+)?(?:startup|company|ai company|healthcare company|"
+    r"generational healthcare company|product|project|team)$",
+    re.IGNORECASE,
+)
+VALID_YC_BATCH = re.compile(r"^(?:YC\s*)?[SWF]\d{2}$", re.IGNORECASE)
+VALID_SPEEDRUN_BATCH = re.compile(r"^(?:A16Z\s*)?(?:SPEEDRUN\s*)?SR\d{3}$", re.IGNORECASE)
+MENTIONED_HANDLE = re.compile(r"@([A-Za-z0-9_]{1,30})")
+CURRENT_ANNOUNCEMENT = re.compile(
+    r"\b(today|just|excited to announce|thrilled to announce|we(?:'|’)re joining|"
+    r"we (?:just )?got into|accepted into|selected for)\b",
+    re.IGNORECASE,
+)
 
 
 class SocialJudge(Protocol):
@@ -157,34 +202,66 @@ class GPTSocialClassifier:
             await self._record(deferred)
             return deferred
 
+        text_lower = item.content_text.lower()
+        evidence_valid = bool(judgement.evidence_quotes) and all(
+            quote.strip() and quote.strip().lower() in text_lower
+            for quote in judgement.evidence_quotes[:4]
+        )
+        company = (judgement.company_name or "").strip()
+        batch = (judgement.batch or "").strip()
+        valid_batch = _valid_batch(batch, judgement.program)
+        company_valid = bool(company) and not GENERIC_COMPANY.fullmatch(company)
+
         if not judgement.is_founder_self_announcement or judgement.confidence < self.min_confidence:
             reason = judgement.reason.strip() or judgement.noise_type or "gpt_noise"
             result = Classification(None, f"gpt_rejected:{reason[:160]}", judgement.confidence)
             await self._record(result)
             return result
-        if judgement.confidence < getattr(self, "immediate_min_confidence", 0.9):
+        if not judgement.is_complete_announcement:
+            reason = _incomplete_reason(judgement)
+            result = Classification(None, f"gpt_review:{reason}", judgement.confidence)
+            await self._record(result)
+            return result
+        if not company_valid or not evidence_valid or not valid_batch:
+            failed = (
+                "generic_or_missing_company" if not company_valid
+                else "unsupported_evidence" if not evidence_valid
+                else "invalid_or_missing_batch"
+            )
+            result = Classification(None, f"gpt_review:{failed}", judgement.confidence)
+            await self._record(result)
+            return result
+        if judgement.confidence < self.immediate_min_confidence:
             reason = "gpt_review:" + (judgement.reason.strip() or "needs_review")
             result = Classification(None, reason[:180], judgement.confidence, persist=True)
             await self._record(result)
             return result
 
-        if not judgement.company_name or not judgement.company_name.strip():
-            result = Classification(
-                None, "gpt_rejected:positive_without_company_name", judgement.confidence
-            )
-            await self._record(result)
-            return result
-        item.company_name = judgement.company_name.strip()
-        if judgement.batch:
-            item.batch = judgement.batch.strip()
+        item.company_name = company
+        item.batch = batch
+        item.raw["classification"] = {
+            "confidence": judgement.confidence,
+            "reason": judgement.reason,
+            "program": judgement.program,
+            "batch": batch,
+            "company_name": company,
+            "product_name": judgement.product_name,
+            "company_handle": judgement.company_handle,
+            "evidence_quotes": judgement.evidence_quotes[:4],
+        }
         official = suppress_official(item, official_names, official_hosts, official_handles)
         if official:
             await self._record(official)
             return official
+        mentioned = {value.lower() for value in MENTIONED_HANDLE.findall(item.content_text)}
+        if judgement.company_handle:
+            mentioned.add(judgement.company_handle.lstrip("@").lower())
+        if mentioned & {value.lower() for value in official_handles}:
+            result = Classification(None, "company_handle_already_official", 0.0)
+            await self._record(result)
+            return result
 
         normalized = normalize_company(item.company_name)
-        if not normalized:
-            normalized = f"founder-{item.founder_handle or item.item_id}"
         result = Classification(
             Alert(
                 AlertKind.EARLY_FOUNDER,
@@ -192,7 +269,7 @@ class GPTSocialClassifier:
                 f"early:{normalized}",
                 judgement.confidence,
             ),
-            "gpt_confirmed_founder_self_announcement",
+            f"gpt_confirmed:{judgement.reason[:160]}",
             judgement.confidence,
         )
         await self._record(result)
@@ -249,7 +326,44 @@ def cheap_prefilter(
         return Classification(None, "founder_already_official", 0.0)
     if not PROGRAM.search(text):
         return Classification(None, "missing_program_reference", 0.0)
+    if RETROSPECTIVE.search(text):
+        return Classification(None, "retrospective_not_current_announcement", 0.0)
+    invalid_batch = re.search(r"\bYC\s+([A-Z]\d{2})\b", text, re.IGNORECASE)
+    if invalid_batch and not VALID_YC_BATCH.fullmatch(f"YC {invalid_batch.group(1)}"):
+        return Classification(None, "invalid_yc_batch_code", 0.0)
+    if re.search(r"\bbacked by yc\b", text, re.IGNORECASE) and not CURRENT_ANNOUNCEMENT.search(text):
+        return Classification(None, "yc_affiliation_without_current_acceptance", 0.0)
     return None
+
+
+def _valid_batch(batch: str, program: str | None) -> bool:
+    if not batch:
+        return False
+    normalized_program = (program or "").lower()
+    if "speedrun" in normalized_program or "speedrun" in batch.lower() or batch.upper().startswith("SR"):
+        return bool(VALID_SPEEDRUN_BATCH.fullmatch(batch.strip()))
+    return bool(VALID_YC_BATCH.fullmatch(batch.strip()))
+
+
+def _incomplete_reason(judgement: SocialJudgement) -> str:
+    failures = []
+    if not judgement.is_first_party:
+        failures.append("not_first_party")
+    if not judgement.is_current_announcement:
+        failures.append("not_current")
+    if not judgement.is_accelerator_acceptance:
+        failures.append("not_acceptance")
+    if judgement.is_product_launch_only:
+        failures.append("product_launch_only")
+    if judgement.is_retrospective:
+        failures.append("retrospective")
+    if judgement.is_satire_or_joke:
+        failures.append("satire_or_joke")
+    if not judgement.company_name:
+        failures.append("missing_company")
+    if not judgement.evidence_quotes:
+        failures.append("missing_evidence")
+    return ",".join(failures) or "incomplete_evidence"
 
 
 def suppress_official(

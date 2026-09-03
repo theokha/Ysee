@@ -315,7 +315,7 @@ def test_linkedin_cycle_budget_is_allocated_not_multiplied() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_linkedin_rejects_build_drift() -> None:
+async def test_linkedin_rejects_schema_drift() -> None:
     adapter = LinkedInAdapter("token", total_posts=2)
     respx.post(f"{APIFY_API_BASE}/acts/{adapter.actor_id}/runs").mock(
         return_value=httpx.Response(200, json={"data": {
@@ -324,8 +324,11 @@ async def test_linkedin_rejects_build_drift() -> None:
             "defaultDatasetId": "dataset-1",
         }})
     )
+    respx.get(f"{APIFY_API_BASE}/datasets/dataset-1/items").mock(
+        return_value=httpx.Response(200, json=[{"unexpected": "shape"}])
+    )
     async with httpx.AsyncClient() as client:
-        with pytest.raises(LinkedInCollectError, match="apify_build_drift"):
+        with pytest.raises(LinkedInCollectError, match="apify_schema_drift"):
             await adapter.collect(client)
 
 

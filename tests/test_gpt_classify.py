@@ -30,8 +30,13 @@ def classifier_with_result(judgement: SocialJudgement) -> GPTSocialClassifier:
 async def test_gpt_accepts_founder_launch_and_extracts_fields() -> None:
     classifier = classifier_with_result(SocialJudgement(
         is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
         company_name="Frontier Computing",
+        program="YC",
         batch="YC S26",
+        evidence_quotes=["Today we're launching Frontier Computing (YC S26)"],
         confidence=0.94,
         reason="First-party company launch",
         noise_type=None,
@@ -59,7 +64,7 @@ async def test_gpt_rejects_positive_without_company_name() -> None:
     )
     assert result.alert is None
     assert result.persist
-    assert result.reason == "gpt_rejected:positive_without_company_name"
+    assert result.reason.startswith("gpt_review:")
 
 
 @pytest.mark.asyncio
@@ -84,8 +89,13 @@ async def test_gpt_rejects_news() -> None:
 async def test_almanac_alias_and_handle_override_gpt() -> None:
     classifier = classifier_with_result(SocialJudgement(
         is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
         company_name="Almanac",
+        program="YC",
         batch="YC S26",
+        evidence_quotes=["We're launching Almanac (YC S26)"],
         confidence=0.99,
         reason="First-party",
         noise_type=None,
@@ -112,8 +122,13 @@ async def test_almanac_alias_and_handle_override_gpt() -> None:
 async def test_official_identity_overrides_gpt() -> None:
     classifier = classifier_with_result(SocialJudgement(
         is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
         company_name="Acme AI",
+        program="YC",
         batch="YC S26",
+        evidence_quotes=["We're launching Acme AI (YC S26)"],
         confidence=0.95,
         reason="First-party",
         noise_type=None,
@@ -139,6 +154,113 @@ async def test_non_program_post_skips_gpt() -> None:
     assert result.reason == "missing_program_reference"
     assert classifier.client
     classifier.client.responses.parse.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        (
+            "I'm 30. I built GojiberryAI. Got accepted into YC. If I had to start from 0, here's what I'd do.",
+            "retrospective_not_current_announcement",
+        ),
+        (
+            "My life so far: college, McKinsey, got into YC, got married, still building.",
+            "retrospective_not_current_announcement",
+        ),
+        (
+            "Excited to announce I was accepted into YC P26 to build @trylightning",
+            "invalid_yc_batch_code",
+        ),
+        (
+            "hey im the founder of @wildcard_ai, we do AI search for ecomm, backed by yc. shoot me a DM",
+            "yc_affiliation_without_current_acceptance",
+        ),
+    ],
+)
+async def test_production_noise_is_hard_rejected_before_gpt(text: str, reason: str) -> None:
+    judgement = SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Noise Co",
+        program="YC",
+        batch="YC F26",
+        evidence_quotes=[text[:20]],
+        confidence=0.99,
+        reason="wrong",
+    )
+    classifier = classifier_with_result(judgement)
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == reason
+    assert classifier.client
+    classifier.client.responses.parse.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_product_launch_only_goes_to_review() -> None:
+    text = "We are launching GitNexus from Akon Labs. Akon Labs is YC S26."
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=False,
+        is_product_launch_only=True,
+        company_name="Akon Labs",
+        product_name="GitNexus",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["launching GitNexus"],
+        confidence=0.98,
+        reason="Product launch by existing YC company",
+    ))
+    result = await classifier.classify(social_item(text), {"akon"}, set(), set())
+    assert result.alert is None
+    assert result.reason.startswith("gpt_review:")
+
+
+@pytest.mark.asyncio
+async def test_company_handle_crosscheck_suppresses_box_product() -> None:
+    text = "we just got into the YC F26 batch to build box by @asciidotdev"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Ascii",
+        product_name="box",
+        company_handle="asciidotdev",
+        program="YC",
+        batch="YC F26",
+        evidence_quotes=["we just got into the YC F26 batch", "box by @asciidotdev"],
+        confidence=0.99,
+        reason="Current first-party acceptance",
+    ))
+    result = await classifier.classify(social_item(text), {"ascii"}, set(), {"asciidotdev"})
+    assert result.alert is None
+    assert result.reason == "company_already_official"
+
+
+@pytest.mark.asyncio
+async def test_unsupported_evidence_quote_goes_to_review() -> None:
+    text = "We got into YC F26 with Harbor"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Harbor",
+        program="YC",
+        batch="YC F26",
+        evidence_quotes=["a quote not in the post"],
+        confidence=0.99,
+        reason="Current acceptance",
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:unsupported_evidence"
 
 
 @pytest.mark.asyncio
@@ -184,8 +306,13 @@ async def test_no_key_uses_deterministic_classifier() -> None:
 async def test_gpt_cycle_budget_caps_calls_and_records_stats() -> None:
     judgement = SocialJudgement(
         is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
         company_name="Frontier Computing",
+        program="YC",
         batch="YC S26",
+        evidence_quotes=["Today we're launching Frontier Computing (YC S26)"],
         confidence=0.94,
         reason="First-party company launch",
         noise_type=None,
