@@ -21,6 +21,7 @@ from yc_monitor.db import (
     YC_LAUNCHES_BOOTSTRAP_KEY,
     Database,
 )
+from yc_monitor.entity_resolver import TwitterCompanyResolver
 from yc_monitor.gpt_classify import (
     GPTCycleStats,
     GPTSocialClassifier,
@@ -203,6 +204,7 @@ class MonitorPipeline:
             daily_budget_check=lambda: self.db.consume_daily_budget(
                 "openai_calls", self.settings.openai_max_calls_per_day
             ),
+            company_resolver=TwitterCompanyResolver(settings.twitterapi_io_api_key),
         )
 
     async def run(self, dry_run: bool = False) -> dict[str, object]:

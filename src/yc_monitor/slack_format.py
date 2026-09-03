@@ -6,13 +6,17 @@ from zoneinfo import ZoneInfo
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Source
 
 HEADERS = {
-    AlertKind.EARLY_FOUNDER: "EARLY YC SIGNAL | Founder announced before YC",
+    AlertKind.EARLY_FOUNDER: "EARLY YC ACCEPTANCE | Founder announced before YC",
+    AlertKind.EARLY_YC_LAUNCH: "EARLY YC LAUNCH | Not yet listed by YC",
+    AlertKind.EARLY_SPEEDRUN_LAUNCH: "EARLY SPEEDRUN LAUNCH | Not yet listed by a16z",
     AlertKind.OFFICIAL_YC: "NEW YC COMPANY",
     AlertKind.OFFICIAL_SPEEDRUN: "NEW a16z SPEEDRUN COMPANY",
 }
 
 STATUSES = {
-    AlertKind.EARLY_FOUNDER: "Founder announced / not yet officially listed by YC",
+    AlertKind.EARLY_FOUNDER: "Founder announced YC acceptance / not yet officially listed",
+    AlertKind.EARLY_YC_LAUNCH: "Founder launched current-batch YC company / not yet officially listed",
+    AlertKind.EARLY_SPEEDRUN_LAUNCH: "Founder announced a16z Speedrun company / not yet officially listed",
     AlertKind.OFFICIAL_YC: "Confirmed by YC",
     AlertKind.OFFICIAL_SPEEDRUN: "Confirmed by a16z Speedrun",
 }
@@ -68,7 +72,11 @@ def format_alert(alert: Alert, demo: bool = False) -> tuple[str, list[dict[str, 
             }
         )
 
-    if alert.kind == AlertKind.EARLY_FOUNDER and item.content_text.strip():
+    if alert.kind in {
+        AlertKind.EARLY_FOUNDER,
+        AlertKind.EARLY_YC_LAUNCH,
+        AlertKind.EARLY_SPEEDRUN_LAUNCH,
+    } and item.content_text.strip():
         quote = item.content_text.strip().replace("\n", " ")[:500]
         blocks.append(
             {

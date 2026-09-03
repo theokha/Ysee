@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from yc_monitor.classify import PROGRAM, classify_social, matches_official_name, normalize_company
+from yc_monitor.entity_resolver import CompanyHandleResolver
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Classification
 
 SYSTEM_PROMPT = """Classify a social post for an early YC or a16z Speedrun monitor.
@@ -46,12 +47,17 @@ class SocialJudgement(BaseModel):
 
     @property
     def is_complete_announcement(self) -> bool:
+        # A current first-party launch that names the company and batch is a
+        # complete signal even when it is not an explicit acceptance post;
+        # that case alerts as a distinct launch kind rather than acceptance.
+        if self.is_accelerator_acceptance and self.is_product_launch_only:
+            return False
+        if self.is_product_launch_only and not self.is_current_announcement:
+            return False
         return all((
             self.is_founder_self_announcement,
             self.is_first_party,
             self.is_current_announcement,
-            self.is_accelerator_acceptance,
-            not self.is_product_launch_only,
             not self.is_retrospective,
             not self.is_satire_or_joke,
             bool(self.company_name and self.company_name.strip()),
@@ -145,6 +151,7 @@ class GPTSocialClassifier:
         max_calls_per_cycle: int = 25,
         immediate_min_confidence: float = 0.9,
         daily_budget_check: Callable[[], bool] | None = None,
+        company_resolver: CompanyHandleResolver | None = None,
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.enabled = bool(api_key)
@@ -154,6 +161,7 @@ class GPTSocialClassifier:
         self.immediate_min_confidence = immediate_min_confidence
         self.max_calls_per_cycle = max_calls_per_cycle
         self.daily_budget_check = daily_budget_check
+        self.company_resolver = company_resolver
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self._lock = asyncio.Lock()
         self.stats = GPTCycleStats(max_calls=max_calls_per_cycle)
@@ -209,11 +217,30 @@ class GPTSocialClassifier:
         )
         company = (judgement.company_name or "").strip()
         batch = (judgement.batch or "").strip()
-        valid_batch = _valid_batch(batch, judgement.program)
+        speedrun_program = _is_speedrun_program(judgement.program, item.content_text)
+        valid_batch = _valid_batch(batch, judgement.program) or (
+            speedrun_program and _explicit_speedrun_announcement(item.content_text)
+        )
         company_valid = bool(company) and not GENERIC_COMPANY.fullmatch(company)
 
+        reason_text = judgement.reason.strip()
+        contradictory_negative = (
+            not judgement.is_founder_self_announcement
+            and any(
+                phrase in reason_text.lower()
+                for phrase in (
+                    "explicitly announces acceptance",
+                    "clearly announces acceptance",
+                    "current first-party acceptance",
+                )
+            )
+        )
+        if contradictory_negative:
+            result = Classification(None, "gpt_review:contradictory_verdict", judgement.confidence)
+            await self._record(result)
+            return result
         if not judgement.is_founder_self_announcement or judgement.confidence < self.min_confidence:
-            reason = judgement.reason.strip() or judgement.noise_type or "gpt_noise"
+            reason = reason_text or judgement.noise_type or "gpt_noise"
             result = Classification(None, f"gpt_rejected:{reason[:160]}", judgement.confidence)
             await self._record(result)
             return result
@@ -254,17 +281,35 @@ class GPTSocialClassifier:
             await self._record(official)
             return official
         mentioned = {value.lower() for value in MENTIONED_HANDLE.findall(item.content_text)}
-        if judgement.company_handle:
-            mentioned.add(judgement.company_handle.lstrip("@").lower())
+        company_handle = (judgement.company_handle or "").lstrip("@").lower()
+        if company_handle:
+            mentioned.add(company_handle)
         if mentioned & {value.lower() for value in official_handles}:
             result = Classification(None, "company_handle_already_official", 0.0)
             await self._record(result)
             return result
+        if company_handle and self.company_resolver is not None:
+            resolution = await self.company_resolver.resolve_official(
+                company_handle, official_names, official_hosts
+            )
+            if resolution is True:
+                result = Classification(None, "resolved_company_already_official", 0.0)
+                await self._record(result)
+                return result
+            if resolution is None:
+                result = Classification(None, "gpt_review:unresolved_company_handle", judgement.confidence)
+                await self._record(result)
+                return result
+        elif judgement.product_name and company_handle:
+            result = Classification(None, "gpt_review:unresolved_product_owner", judgement.confidence)
+            await self._record(result)
+            return result
 
         normalized = normalize_company(item.company_name)
+        kind = _alert_kind(judgement)
         result = Classification(
             Alert(
-                AlertKind.EARLY_FOUNDER,
+                kind,
                 item,
                 f"early:{normalized}",
                 judgement.confidence,
@@ -334,6 +379,28 @@ def cheap_prefilter(
     if re.search(r"\bbacked by yc\b", text, re.IGNORECASE) and not CURRENT_ANNOUNCEMENT.search(text):
         return Classification(None, "yc_affiliation_without_current_acceptance", 0.0)
     return None
+
+
+def _is_speedrun_program(program: str | None, text: str) -> bool:
+    return "speedrun" in (program or "").lower() or bool(
+        re.search(r"\b(?:a16z\s+)?speedrun\b|@speedrun\b", text, re.IGNORECASE)
+    )
+
+
+def _explicit_speedrun_announcement(text: str) -> bool:
+    return bool(
+        CURRENT_ANNOUNCEMENT.search(text)
+        and re.search(r"\b(?:a16z\s+)?speedrun\b|@speedrun\b", text, re.IGNORECASE)
+    )
+
+
+def _alert_kind(judgement: SocialJudgement) -> AlertKind:
+    program = (judgement.program or "").lower()
+    if "speedrun" in program:
+        return AlertKind.EARLY_SPEEDRUN_LAUNCH
+    if judgement.is_accelerator_acceptance and not judgement.is_product_launch_only:
+        return AlertKind.EARLY_FOUNDER
+    return AlertKind.EARLY_YC_LAUNCH
 
 
 def _valid_batch(batch: str, program: str | None) -> bool:

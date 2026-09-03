@@ -171,7 +171,7 @@ def test_early_alert_quotes_original_post() -> None:
     rendered = str(blocks)
     assert "Original post" in rendered
     assert "Open original post" in rendered
-    assert "EARLY YC SIGNAL" in text
+    assert "EARLY YC ACCEPTANCE" in text
     assert "https://x.com/alice/status/1" in rendered
     assert "DEMO ALERT" not in rendered
 

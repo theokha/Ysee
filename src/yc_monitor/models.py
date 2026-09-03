@@ -23,6 +23,8 @@ class HealthStatus(StrEnum):
 
 class AlertKind(StrEnum):
     EARLY_FOUNDER = "early_founder"
+    EARLY_YC_LAUNCH = "early_yc_launch"
+    EARLY_SPEEDRUN_LAUNCH = "early_speedrun_launch"
     OFFICIAL_YC = "official_yc"
     OFFICIAL_SPEEDRUN = "official_speedrun"
 

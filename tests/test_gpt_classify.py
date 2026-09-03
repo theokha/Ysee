@@ -19,11 +19,27 @@ def social_item(text: str, company: str | None = None) -> CanonicalItem:
     )
 
 
-def classifier_with_result(judgement: SocialJudgement) -> GPTSocialClassifier:
+def classifier_with_result(
+    judgement: SocialJudgement, resolver: object | None = None
+) -> GPTSocialClassifier:
     response = MagicMock(output_parsed=judgement)
     client = MagicMock()
     client.responses.parse = AsyncMock(return_value=response)
-    return GPTSocialClassifier("key", "test-model", 5, 0, 2, 0.65, client=client)
+    return GPTSocialClassifier(
+        "key", "test-model", 5, 0, 2, 0.65,
+        company_resolver=resolver,  # type: ignore[arg-type]
+        client=client,
+    )
+
+
+class FakeResolver:
+    def __init__(self, result: bool | None) -> None:
+        self.result = result
+
+    async def resolve_official(
+        self, handle: str, official_names: set[str], official_hosts: set[str]
+    ) -> bool | None:
+        return self.result
 
 
 @pytest.mark.asyncio
@@ -218,7 +234,11 @@ async def test_product_launch_only_goes_to_review() -> None:
     ))
     result = await classifier.classify(social_item(text), {"akon"}, set(), set())
     assert result.alert is None
-    assert result.reason.startswith("gpt_review:")
+    assert result.reason == "company_already_official"
+
+    unseen = await classifier.classify(social_item(text), set(), set(), set())
+    assert unseen.alert
+    assert unseen.alert.kind == AlertKind.EARLY_YC_LAUNCH
 
 
 @pytest.mark.asyncio
@@ -261,6 +281,110 @@ async def test_unsupported_evidence_quote_goes_to_review() -> None:
     result = await classifier.classify(social_item(text), set(), set(), set())
     assert result.alert is None
     assert result.reason == "gpt_review:unsupported_evidence"
+
+
+@pytest.mark.asyncio
+async def test_kairo_speedrun_without_cohort_alerts_as_speedrun_launch() -> None:
+    text = (
+        "Two months ago, I left BCG and bet it all on my company, Kairo. "
+        "Today I'm excited to announce that Kairo is backed by a16z @speedrun."
+    )
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Kairo",
+        program="Speedrun",
+        batch=None,
+        evidence_quotes=["Today I'm excited to announce", "Kairo is backed by a16z"],
+        confidence=0.95,
+        reason="Current first-party a16z Speedrun announcement",
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_SPEEDRUN_LAUNCH
+
+
+@pytest.mark.asyncio
+async def test_contradictory_negative_verdict_goes_to_review() -> None:
+    text = "since we just got into YC, everyone got curious about box"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=False,
+        company_name="box",
+        batch="YC F26",
+        confidence=0.9,
+        reason="The post explicitly announces acceptance into YC and identifies the author.",
+        noise_type=None,
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:contradictory_verdict"
+
+
+@pytest.mark.asyncio
+async def test_resolver_true_suppresses_box_product() -> None:
+    text = "we just got into the YC F26 batch to build box by @asciidotdev"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Ascii",
+        product_name="box",
+        company_handle="asciidotdev",
+        program="YC",
+        batch="YC F26",
+        evidence_quotes=["we just got into the YC F26 batch", "box by @asciidotdev"],
+        confidence=0.99,
+        reason="Current first-party acceptance",
+    ), resolver=FakeResolver(True))
+    result = await classifier.classify(social_item(text), {"ascii"}, set(), set())
+    assert result.alert is None
+    assert result.reason == "company_already_official"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_product_owner_goes_to_review() -> None:
+    text = "we just got into the YC F26 batch to build box by @unknownmaker"
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=True,
+        company_name="Unknown Co",
+        product_name="box",
+        company_handle="unknownmaker",
+        program="YC",
+        batch="YC F26",
+        evidence_quotes=["we just got into the YC F26 batch"],
+        confidence=0.95,
+        reason="Current first-party acceptance",
+    ), resolver=FakeResolver(None))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert is None
+    assert result.reason == "gpt_review:unresolved_company_handle"
+
+
+@pytest.mark.asyncio
+async def test_yc_product_launch_alerts_as_yc_launch_kind() -> None:
+    text = "Today we're launching Frontier Computing, built by us for the YC S26 batch."
+    classifier = classifier_with_result(SocialJudgement(
+        is_founder_self_announcement=True,
+        is_first_party=True,
+        is_current_announcement=True,
+        is_accelerator_acceptance=False,
+        is_product_launch_only=True,
+        company_name="Frontier Computing",
+        program="YC",
+        batch="YC S26",
+        evidence_quotes=["Today we're launching Frontier Computing"],
+        confidence=0.93,
+        reason="First-party current-batch launch, acceptance not stated",
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_YC_LAUNCH
 
 
 @pytest.mark.asyncio
