@@ -31,6 +31,26 @@ Open `http://localhost:8080/healthz` and `/manifest`. `serve` schedules one non-
 
 Each adapter emits the same canonical item model. `pipeline.py` refreshes official sources first, builds the official identity set, then classifies social results. SQLite uniqueness constraints reserve an alert into a Slack outbox before delivery, so a Slack outage does not drop the alert. Pending and failed outbox rows retry on later runs; sent rows do not. If `SLACK_BOT_TOKEN` is unset, the notifier uses the latest OAuth-installed bot token from `slack_install`. A failed adapter is recorded but does not stop the other sources.
 
+### End-to-end workflow
+
+Four triggers converge on one `MonitorPipeline.run` cycle, which fans into an official/catalog path and a social path before a shared delivery stage. `dry_run` fetches and classifies as normal but reserves nothing and delivers nothing.
+
+![End-to-end workflow](docs/workflow-1.png)
+
+### Classification
+
+Social posts always go through `GPTSocialClassifier.classify`. A cheap regex prefilter rejects the obvious noise before any LLM call, then the structured `SocialJudgement` runs a gate chain that ends in one of four outcomes — **accept** (alert), **review** (queued for a human), **reject**, or **defer** (retried next cycle). The `classify.py` heuristic is a fallback only: it runs when GPT is disabled or the API errors, and it can never override a GPT reject or review.
+
+![Classification decision tree](docs/workflow-2.png)
+
+### Data stores, review loop, and control surface
+
+Nine SQLite tables, the `/yc review` re-judge loop, offline audit replay, and the split between Slack-tunable and env-fixed settings.
+
+![Data stores and control surface](docs/workflow-3.png)
+
+The editable source is [`docs/yc-monitor-workflow.drawio`](docs/yc-monitor-workflow.drawio) — a three-page [diagrams.net](https://app.diagrams.net) file. See [docs/README.md](docs/README.md) to edit and re-export.
+
 ## Commands
 
 - `python -m yc_monitor serve` — HTTP server and persistent scheduler (immediate first cycle, then interval).

@@ -1,0 +1,485 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17" type="device">
+  <diagram id="page1" name="1 · End-to-End Workflow">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="2336" math="0" shadow="0">
+      <root>
+        <mxCell id="p1-0" />
+        <mxCell id="p1-1" parent="p1-0" />
+
+        <mxCell id="title" value="YC Launch Monitor — End-to-End Workflow&#10;(MonitorPipeline.run — pipeline.py:274)" style="text;html=1;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="p1-1">
+          <mxGeometry x="40" y="0" width="900" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="laneOff" value="OFFICIAL / CATALOG PATH" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#b3b3b3;dashed=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=13;fontStyle=1;fontColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="20" y="640" width="690" height="920" as="geometry" />
+        </mxCell>
+        <mxCell id="laneSoc" value="SOCIAL PATH" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#b3b3b3;dashed=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=13;fontStyle=1;fontColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="740" y="640" width="760" height="920" as="geometry" />
+        </mxCell>
+        <mxCell id="laneDel" value="DELIVERY &amp;amp; CLOSE-OUT (skipped entirely when dry_run=True)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#b3b3b3;dashed=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=13;fontStyle=1;fontColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="20" y="1600" width="1480" height="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t1" value="&lt;b&gt;APScheduler&lt;/b&gt;&lt;br&gt;interval job &lt;i&gt;monitor-cycle&lt;/i&gt;&lt;br&gt;every poll_interval_hours (1–48)&lt;br&gt;first fire: +30s or +interval&lt;br&gt;max_instances=1, coalesce&lt;br&gt;&lt;i&gt;scheduler.py:7-40&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;" vertex="1" parent="p1-1">
+          <mxGeometry x="40" y="70" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="&lt;b&gt;CLI&lt;/b&gt; python -m yc_monitor&lt;br&gt;serve | run-once [--dry-run]&lt;br&gt;status | leads | audit &amp;lt;run_id&amp;gt;&lt;br&gt;test-alert&lt;br&gt;&lt;i&gt;__main__.py:16-50&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;" vertex="1" parent="p1-1">
+          <mxGeometry x="370" y="70" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="&lt;b&gt;Slack slash commands&lt;/b&gt;&lt;br&gt;/yc scan · /yc scan dry · /yc review&lt;br&gt;/yc retry  (admin-gated)&lt;br&gt;POST /slack/commands, HMAC v0&lt;br&gt;&lt;i&gt;slack_app.py:131-181&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;" vertex="1" parent="p1-1">
+          <mxGeometry x="700" y="70" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="&lt;b&gt;Pond agent API&lt;/b&gt;&lt;br&gt;POST /runs (Bearer pond_access_key)&lt;br&gt;run_monitor_cycle | get_status | list_leads&lt;br&gt;idempotent via pond_responses&lt;br&gt;&lt;i&gt;pond_server.py:298-346&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;" vertex="1" parent="p1-1">
+          <mxGeometry x="1050" y="70" width="340" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pRun" value="&lt;b&gt;MonitorPipeline.run(dry_run)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=14;" vertex="1" parent="p1-1">
+          <mxGeometry x="620" y="215" width="360" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="pRt" value="apply_runtime_settings(db, base_settings)&lt;br&gt;overlay &lt;i&gt;runtime_settings&lt;/i&gt; rows onto .env defaults&lt;br&gt;&lt;i&gt;runtime_settings.py:170-186&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="620" y="300" width="360" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="dThr" value="thresholds ordered?&lt;br&gt;min ≤ review ≤ immediate" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-1">
+          <mxGeometry x="670" y="405" width="260" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="nRevert" value="revert to previous settings&lt;br&gt;(log warning — an inverted band&lt;br&gt;would queue everything)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p1-1">
+          <mxGeometry x="990" y="415" width="260" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="pStart" value="if settings changed → build_adapters() + _sync_classifier_limits()&lt;br&gt;&lt;b&gt;db.start_run(run_id)&lt;/b&gt; → &lt;i&gt;runs&lt;/i&gt;   ·   classifier.begin_cycle()&lt;br&gt;httpx.AsyncClient(User-Agent: YCLaunchMonitor/1.0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="570" y="535" width="460" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="OA" value="&lt;b&gt;OFFICIAL ADAPTERS&lt;/b&gt; — sequential _safe_collect()&lt;br&gt;&lt;br&gt;• &lt;b&gt;YCDirectoryAdapter&lt;/b&gt; → GET yc-oss.github.io/api/companies/all.json&lt;br&gt;&#160;&#160;&#160;+ changes/latest.json probe (non-fatal, 15s)&lt;br&gt;• &lt;b&gt;YCSpeedrunAdapter&lt;/b&gt; → GET speedrun-api.a16z.com/api/companies/ (paginated)&lt;br&gt;&#160;&#160;&#160;SKIPPED when YC_SPEEDRUN_URL unset&lt;br&gt;• &lt;b&gt;YCLaunchesAdapter&lt;/b&gt; → GET ycombinator.com/launches (JSON hits)&lt;br&gt;&lt;br&gt;each → CollectionResult(items: CanonicalItem[], health: AdapterHealth)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=10;" vertex="1" parent="p1-1">
+          <mxGeometry x="45" y="690" width="640" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="OB" value="record_audit_decision(stage=&quot;official_ingest&quot;, outcome=&quot;collected&quot;) → &lt;i&gt;audit_decisions&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="105" y="860" width="520" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="OC" value="ingest_official_result() — routes by Source&lt;br&gt;&lt;i&gt;pipeline.py:47&lt;/i&gt;  ·  upsert_yc_company() → &lt;i&gt;yc_companies&lt;/i&gt; (names, aliases, host, founder handles)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="105" y="935" width="520" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="OD" value="bootstrapped?&lt;br&gt;app_state[*_bootstrap_complete]" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-1">
+          <mxGeometry x="190" y="1020" width="350" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="ODno" value="reserve_item(&quot;baseline&quot;)&lt;br&gt;seed catalog only — no alert" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p1-1">
+          <mxGeometry x="40" y="1145" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="OE" value="eligible?&lt;br&gt;YC dir: new slug AND published_at ≥ now − yc_official_alert_max_age_days (7)&lt;br&gt;others: not has_seen_item(dedup_key)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-1">
+          <mxGeometry x="290" y="1145" width="390" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ODrop" value="skip — already known&lt;br&gt;or stale restoration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p1-1">
+          <mxGeometry x="50" y="1290" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="OF" value="find_early_alert_key(company_name)&lt;br&gt;→ upgrade_from / upgrade_note (&quot;previously an early founder signal&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="290" y="1285" width="390" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="OG" value="&lt;b&gt;official_alert()&lt;/b&gt; → AlertKind.OFFICIAL_YC | OFFICIAL_SPEEDRUN&lt;br&gt;dedup_key: yc:{item_id} | speedrun:{name} | launch:{item_id}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-1">
+          <mxGeometry x="240" y="1385" width="440" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="OH" value="db.reserve_alert(alert) → &lt;i&gt;slack_outbox&lt;/i&gt; (pending)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-1">
+          <mxGeometry x="270" y="1485" width="380" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="SA" value="&lt;b&gt;SOCIAL ADAPTERS&lt;/b&gt; — _safe_collect()&lt;br&gt;&lt;br&gt;• &lt;b&gt;TwitterAdapter&lt;/b&gt; → GET api.twitterapi.io/twitter/tweet/advanced_search&lt;br&gt;&#160;&#160;&#160;queries + &quot;since_time:{now − twitter_lookback_days}&quot;, cursor paging ×max_pages, drops replies&lt;br&gt;&#160;&#160;&#160;SKIPPED without TWITTERAPI_IO_API_KEY&lt;br&gt;• &lt;b&gt;LinkedInAdapter&lt;/b&gt; → POST api.apify.com/v2/acts/{actor}/runs → GET dataset items&lt;br&gt;&#160;&#160;&#160;HarvestAPI actor, postedLimit=week, client-side cut at linkedin_window_hours (36)&lt;br&gt;&#160;&#160;&#160;SKIPPED without APIFY_API_TOKEN&lt;br&gt;&lt;br&gt;adapter failure → HealthStatus.FAILED, cycle continues" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=10;" vertex="1" parent="p1-1">
+          <mxGeometry x="760" y="690" width="720" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="SB" value="filter: not db.has_seen_item(&quot;{source}:{item_id}&quot;)  — cross-cycle dedup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="830" y="880" width="580" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="SC" value="db.official_identities() → (names, hosts, founder_handles) from &lt;i&gt;yc_companies&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="830" y="950" width="580" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="SD" value="_classify_social_items() — asyncio.gather, per-item try/except&lt;br&gt;one bad item defers itself instead of failing the run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="830" y="1020" width="580" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="SE" value="&lt;b&gt;GPTSocialClassifier.classify()&lt;/b&gt;&lt;br&gt;prefilter → OpenAI → decision tree — &lt;i&gt;see Page 2&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1" vertex="1" parent="p1-1">
+          <mxGeometry x="880" y="1100" width="480" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="SF" value="record_audit_decision(stage=&quot;classify&quot;, outcome ∈ alert | review | rejected | deferred)&lt;br&gt;+ raw payload → &lt;i&gt;audit_decisions&lt;/i&gt;   ·   put_state(&quot;watermark:{source}&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="830" y="1190" width="580" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="SG" value="classification.persist?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-1">
+          <mxGeometry x="900" y="1275" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="SGno" value="&lt;b&gt;deferred&lt;/b&gt;&lt;br&gt;not written to&lt;br&gt;seen_items —&lt;br&gt;retried next cycle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p1-1">
+          <mxGeometry x="1340" y="1280" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="R1" value="&lt;b&gt;alert&lt;/b&gt;&lt;br&gt;reserve_item(&quot;evidence&quot;)&lt;br&gt;+ reserve_alert(run_id)&lt;br&gt;→ slack_outbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-1">
+          <mxGeometry x="765" y="1410" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="R2" value="&lt;b&gt;reason starts &quot;gpt_review:&quot;&lt;/b&gt;&lt;br&gt;reserve_item(&quot;review&quot;)&lt;br&gt;→ review queue&lt;br&gt;+ ops review digest (≤8 names)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p1-1">
+          <mxGeometry x="1010" y="1410" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="R3" value="&lt;b&gt;otherwise&lt;/b&gt;&lt;br&gt;reserve_item(&quot;rejected&quot;)&lt;br&gt;no Slack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p1-1">
+          <mxGeometry x="1255" y="1410" width="230" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="DL1" value="&lt;b&gt;deliver_outbox()&lt;/b&gt;&lt;br&gt;list_undelivered_alerts() — pending + failed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="90" y="1660" width="330" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="DL2" value="slack_thread_for_early_key(upgrade_from)&lt;br&gt;→ post as a thread reply under the original early-signal alert" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="90" y="1740" width="330" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="DL3" value="SlackNotifier.send → AsyncWebClient.chat_postMessage&lt;br&gt;format_alert() Block Kit — header by AlertKind, fields,&lt;br&gt;quoted post, URL link buttons (no action_id / no interactivity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="90" y="1825" width="330" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="DL4" value="posted?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-1">
+          <mxGeometry x="470" y="1820" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="DL5" value="mark_outbox_sent(channel, ts)&lt;br&gt;+ seen_items → &quot;alerted&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-1">
+          <mxGeometry x="720" y="1755" width="270" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="DL6" value="mark_outbox_failed(error)&lt;br&gt;retried next cycle or via /yc retry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p1-1">
+          <mxGeometry x="720" y="1885" width="270" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="DL7" value="_notify_source_health(health)&lt;br&gt;2 consecutive FAILED → ops channel &quot;Monitor degraded&quot;&lt;br&gt;recovery → &quot;{source} monitor recovered&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="1040" y="1660" width="330" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="DL8" value="put_state: last_gpt_stats, last_usage&lt;br&gt;(twitter_posts, linkedin_posts, review_count, gpt) → &lt;i&gt;app_state&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-1">
+          <mxGeometry x="1040" y="1765" width="330" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="DL9" value="&lt;b&gt;finish_run(run_id, completed|failed, alert_count, health)&lt;/b&gt; → &lt;i&gt;runs&lt;/i&gt;&lt;br&gt;returns {run_id, status, alert_count, alerts[], delivered_count, gpt, health[]}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p1-1">
+          <mxGeometry x="1040" y="1865" width="330" height="75" as="geometry" />
+        </mxCell>
+
+        <mxCell id="noteDry" value="&lt;b&gt;dry_run=True&lt;/b&gt;: adapters still fetch and items still classify, but nothing is reserved in seen_items / slack_outbox, no watermarks or usage state are written, and delivery + health notices are skipped. Alerts are only returned in the response payload." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=10;dashed=1;" vertex="1" parent="p1-1">
+          <mxGeometry x="1050" y="215" width="400" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="t1" target="pRun"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="t2" target="pRun"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="t3" target="pRun"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="t4" target="pRun"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="pRun" target="pRt"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="pRt" target="dThr"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="dThr" target="nRevert"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="nRevert" target="pStart"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="dThr" target="pStart"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" value="1 · official first" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="pStart" target="OA"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" value="2 · then social" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="pStart" target="SA"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OA" target="OB"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OB" target="OC"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OC" target="OD"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e15" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OD" target="ODno"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e16" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OD" target="OE"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OE" target="ODrop"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OE" target="OF"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OF" target="OG"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OG" target="OH"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e21" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SA" target="SB"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SB" target="SC"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SC" target="SD"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e24" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SD" target="SE"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e25" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SE" target="SF"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e26" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SF" target="SG"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e27" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SG" target="SGno"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e28" value="alert" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SG" target="R1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e29" value="review" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SG" target="R2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e30" value="reject" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="SG" target="R3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e31" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="OH" target="DL1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e32" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="R1" target="DL1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e33" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL1" target="DL2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e34" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL2" target="DL3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e35" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL3" target="DL4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e36" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL4" target="DL5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e37" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL4" target="DL6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e38" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="p1-1" source="DL5" target="DL8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e39" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p1-1" source="DL8" target="DL9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e40" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="p1-1" source="DL7" target="DL8"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page2" name="2 · Classification Decision Tree">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="2336" math="0" shadow="0">
+      <root>
+        <mxCell id="p2-0" />
+        <mxCell id="p2-1" parent="p2-0" />
+
+        <mxCell id="p2title" value="Social Post Classification — GPTSocialClassifier.classify()&#10;gpt_classify.py:229-433  ·  outcomes: ACCEPT / REVIEW / REJECT / DEFER" style="text;html=1;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="p2-1">
+          <mxGeometry x="100" y="0" width="1000" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;green = ACCEPT → alert&lt;br&gt;orange = REVIEW → queue (&quot;gpt_review:*&quot;)&lt;br&gt;red = REJECT → seen_items &quot;rejected&quot;&lt;br&gt;grey = DEFER (persist=False, retried)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;spacingLeft=10;dashed=1;" vertex="1" parent="p2-1">
+          <mxGeometry x="1200" y="0" width="380" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n1" value="&lt;b&gt;CanonicalItem&lt;/b&gt; (twitter | linkedin)&lt;br&gt;+ official names / hosts / founder handles" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="90" width="440" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="n1b" value="fallback = classify_social(item) is computed first but &lt;b&gt;not returned yet&lt;/b&gt;&#160;— see the heuristic box at bottom-left" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;align=left;fontColor=#666666;fontStyle=2" vertex="1" parent="p2-1">
+          <mxGeometry x="1080" y="90" width="420" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n2" value="&lt;b&gt;cheap_prefilter&lt;/b&gt; hit?&lt;br&gt;empty_content · founder_already_official · missing_program_reference&lt;br&gt;retrospective_not_current_announcement · invalid_yc_batch_code&lt;br&gt;yc_affiliation_without_current_acceptance" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="580" y="180" width="520" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="rj1" value="&lt;b&gt;REJECT&lt;/b&gt; — no LLM call made&lt;br&gt;reason = the failing gate&lt;br&gt;counted as &lt;i&gt;prefiltered&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p2-1">
+          <mxGeometry x="120" y="205" width="380" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n3" value="GPT enabled &amp;amp; client available?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="640" y="370" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="fb1" value="&lt;b&gt;FALLBACK&lt;/b&gt; — return the heuristic&lt;br&gt;classify_social() result verbatim" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="380" width="400" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n4" value="cycle_calls &amp;lt; openai_max_calls_per_cycle&lt;br&gt;AND daily budget (openai_max_calls_per_day) available?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="500" width="440" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="df1" value="&lt;b&gt;DEFER&lt;/b&gt; persist=False&lt;br&gt;gpt_cycle_budget_exhausted&lt;br&gt;never stored → retried next cycle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p2-1">
+          <mxGeometry x="120" y="520" width="380" height="75" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n5" value="&lt;b&gt;_judge()&lt;/b&gt; — OpenAI client.responses.parse&lt;br&gt;model = settings.openai_model (default &lt;b&gt;gpt-5.6-luna&lt;/b&gt;)&lt;br&gt;SYSTEM_PROMPT + user JSON {source, author_name, author_handle,&lt;br&gt;existing_company, url, text[:3000]}&lt;br&gt;bounded by openai_max_concurrency / timeout / retries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="650" width="440" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" value="API / parse error?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="680" y="800" width="320" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="er1" value="fallback.alert exists?&lt;br&gt;&lt;b&gt;Yes&lt;/b&gt; → ACCEPT the heuristic alert&lt;br&gt;&lt;b&gt;No&lt;/b&gt; → DEFER openai_classification_deferred (persist=False)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="795" width="400" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n7" value="&lt;b&gt;SocialJudgement&lt;/b&gt; (structured output)&lt;br&gt;is_founder_self_announcement · is_first_party · is_current_announcement&lt;br&gt;is_accelerator_acceptance · is_product_launch_only · is_retrospective&lt;br&gt;is_satire_or_joke · is_third_party_report&lt;br&gt;signal_kind ∈ {first_party_acceptance, first_party_launch, new_company_report, none}&lt;br&gt;company_name · product_name · company_handle · program · batch&lt;br&gt;evidence_quotes[] · confidence · reason · noise_type" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="p2-1">
+          <mxGeometry x="580" y="920" width="520" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g1" value="contradictory_negative?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="660" y="1100" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="rv1" value="&lt;b&gt;REVIEW&lt;/b&gt;&lt;br&gt;gpt_review:contradictory_verdict" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="1110" width="400" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g2" value="is_founder_self_announcement&lt;br&gt;AND confidence ≥ openai_min_confidence (0.65)?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="1220" width="440" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tpbox" value="THIRD-PARTY REPORT ESCAPE HATCH" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fbfbfb;strokeColor=#b3b3b3;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="p2-1">
+          <mxGeometry x="90" y="1220" width="480" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="tp1" value="is_third_party_report&#160;∧ signal_kind = new_company_report&lt;br&gt;∧ company valid ∧ evidence valid&lt;br&gt;∧ ¬retrospective ∧ ¬satire ∧ conf ≥ min?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="105" y="1255" width="450" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="rj2" value="&lt;b&gt;REJECT&lt;/b&gt;&lt;br&gt;gpt_rejected:{reason | noise_type | gpt_noise}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p2-1">
+          <mxGeometry x="105" y="1400" width="450" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tp2" value="then, in order:&lt;br&gt;• suppress_official hit → &lt;b&gt;REJECT&lt;/b&gt;&lt;br&gt;• conf &amp;lt; immediate (0.90) → &lt;b&gt;REVIEW&lt;/b&gt; third_party_low_confidence&lt;br&gt;• invalid batch → &lt;b&gt;REVIEW&lt;/b&gt; third_party_missing_batch&lt;br&gt;• else → &lt;b&gt;ACCEPT&lt;/b&gt; EARLY_YC_LAUNCH (gpt_new_company_report:*)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;align=left;spacingLeft=10;" vertex="1" parent="p2-1">
+          <mxGeometry x="105" y="1480" width="450" height="105" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g3" value="is_complete_announcement?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="660" y="1380" width="360" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rv2" value="&lt;b&gt;REVIEW&lt;/b&gt; gpt_review:{tag}&lt;br&gt;not_first_party · not_current · not_acceptance&lt;br&gt;product_launch_only · retrospective · satire_or_joke&lt;br&gt;missing_company · missing_evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="1385" width="400" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g4" value="company valid (not generic)&lt;br&gt;∧ evidence quotes are real substrings&lt;br&gt;∧ batch code valid?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="1520" width="440" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="rv3" value="&lt;b&gt;REVIEW&lt;/b&gt;&lt;br&gt;gpt_review:generic_or_missing_company&lt;br&gt;gpt_review:unsupported_evidence&lt;br&gt;gpt_review:invalid_or_missing_batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="1530" width="400" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g5" value="conf ≥ openai_review_min_confidence (0.65)?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="640" y="1690" width="400" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="rj3" value="&lt;b&gt;REJECT&lt;/b&gt;&lt;br&gt;gpt_rejected:{reason | low_confidence}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p2-1">
+          <mxGeometry x="150" y="1705" width="400" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g6" value="conf ≥ openai_immediate_min_confidence (0.90)?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="640" y="1830" width="400" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="rv4" value="&lt;b&gt;REVIEW&lt;/b&gt; gpt_review:{reason | needs_review}&lt;br&gt;confidence band [0.65, 0.90)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="1845" width="400" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g7" value="suppress_official (founder / company name / website host)&lt;br&gt;OR company_handle already an official handle?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="620" y="1970" width="440" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="rj4" value="&lt;b&gt;REJECT&lt;/b&gt; — already known to be YC&lt;br&gt;founder_already_official | company_already_official&lt;br&gt;website_already_official | company_handle_already_official" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p2-1">
+          <mxGeometry x="150" y="1990" width="400" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g8" value="&lt;b&gt;TwitterCompanyResolver.resolve_official(company_handle)&lt;/b&gt;&lt;br&gt;GET api.twitterapi.io/twitter/user/info&lt;br&gt;match profile name / website host vs official identities" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="600" y="2130" width="480" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="rj5" value="&lt;b&gt;REJECT&lt;/b&gt; (True — matched)&lt;br&gt;resolved_company_already_official" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p2-1">
+          <mxGeometry x="150" y="2150" width="400" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rv5" value="&lt;b&gt;REVIEW&lt;/b&gt; (None — no key / HTTP fail)&lt;br&gt;gpt_review:unresolved_company_handle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="2150" width="400" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g9" value="no resolver ∧ product_name ∧ company_handle?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-1">
+          <mxGeometry x="640" y="2310" width="400" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="rv6" value="&lt;b&gt;REVIEW&lt;/b&gt;&lt;br&gt;gpt_review:unresolved_product_owner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p2-1">
+          <mxGeometry x="1180" y="2320" width="400" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="acc" value="&lt;b&gt;ACCEPT&lt;/b&gt; — gpt_confirmed:{reason}&lt;br&gt;&lt;br&gt;_alert_kind():&lt;br&gt;&#160;&#160;&quot;speedrun&quot; in program&#160;&#160;→ EARLY_SPEEDRUN_LAUNCH&lt;br&gt;&#160;&#160;acceptance ∧ ¬launch_only&#160;&#160;→ EARLY_FOUNDER&lt;br&gt;&#160;&#160;else&#160;&#160;→ EARLY_YC_LAUNCH&lt;br&gt;&lt;br&gt;→ seen_items &quot;evidence&quot; + slack_outbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="p2-1">
+          <mxGeometry x="600" y="2450" width="480" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="heur" value="&lt;b&gt;classify.py — classify_social() heuristic (fallback only)&lt;/b&gt;&lt;br&gt;Runs when GPT is disabled, or on API error &lt;i&gt;if it already produced an alert&lt;/i&gt;.&lt;br&gt;It can never override a GPT reject/review.&lt;br&gt;&lt;br&gt;Ordered gates:&lt;br&gt;1. company_page_skip (item_id starts &quot;company:&quot;)&lt;br&gt;2. empty_content&lt;br&gt;3. founder_already_official&lt;br&gt;4. excluded_intent — REJECT regex (applied/interview/hiring/congratulations to/...)&lt;br&gt;5. FIRST_PERSON ∧ ACCEPTANCE ∧ PROGRAM all present&lt;br&gt;6. company_already_official (exact, fuzzy ≥ 0.92, or token-subset)&lt;br&gt;7. website_already_official (host in official_hosts)&lt;br&gt;→ ACCEPT AlertKind.EARLY_FOUNDER&lt;br&gt;&#160;&#160;&#160;confidence = 0.75 (+0.10 batch code) (+0.10 company extracted), cap 1.0&lt;br&gt;&#160;&#160;&#160;dedup_key = early:{normalized_company}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;spacingLeft=10;dashed=1;" vertex="1" parent="p2-1">
+          <mxGeometry x="90" y="2450" width="470" height="300" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p2e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n1" target="n2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e2" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n2" target="rj1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e3" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n2" target="n3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e4" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n3" target="fb1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e5" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n3" target="n4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e6" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n4" target="df1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e7" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n4" target="n5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n5" target="n6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e9" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n6" target="er1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e10" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n6" target="n7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="n7" target="g1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e12" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g1" target="rv1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e13" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g1" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e14" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g2" target="tp1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e15" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="tp1" target="rj2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e16" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="p2-1" source="tp1" target="tp2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e17" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g2" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e18" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g3" target="rv2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e19" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g3" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e20" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g4" target="rv3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e21" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g4" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e22" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g5" target="rj3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e23" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g5" target="g6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e24" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g6" target="rv4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e25" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g6" target="g7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e26" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g7" target="rj4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e27" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g7" target="g8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e28" value="True" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g8" target="rj5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e29" value="None" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g8" target="rv5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e30" value="False" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g8" target="g9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e31" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g9" target="rv6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e32" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p2-1" source="g9" target="acc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2e33" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#999999;" edge="1" parent="p2-1" source="heur" target="fb1"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page3" name="3 · Data Stores, Review Loop &amp; Control Surface">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="2336" math="0" shadow="0">
+      <root>
+        <mxCell id="p3-0" />
+        <mxCell id="p3-1" parent="p3-0" />
+
+        <mxCell id="p3title" value="Data Stores, Human Review Loop &amp;amp; Control Surface" style="text;html=1;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;whiteSpace=wrap;" vertex="1" parent="p3-1">
+          <mxGeometry x="40" y="10" width="900" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dbHdr" value="SQLite — data/monitor.db (db.py:54-138)" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="70" width="500" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db1" value="&lt;b&gt;seen_items&lt;/b&gt; — PK dedup_key. Dedup + disposition store &lt;i&gt;and&lt;/i&gt; the review queue.&lt;br&gt;disposition: baseline · pending · alerted · evidence · review · rejected · archived" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="110" width="560" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="db2" value="&lt;b&gt;yc_companies&lt;/b&gt; — official identity catalog: names, aliases, website host, founder handles.&lt;br&gt;Written by ingest_yc_directory; read as the suppression set on every social classify." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="215" width="560" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="db3" value="&lt;b&gt;slack_outbox&lt;/b&gt; — delivery queue / retry. status: pending | failed | sent.&lt;br&gt;Stores the serialized Alert + slack_ts so upgrades thread under the original post." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="320" width="560" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="db4" value="&lt;b&gt;audit_decisions&lt;/b&gt; — append-only trail of every stage outcome, &lt;i&gt;including deferred/capped items that never reach seen_items&lt;/i&gt;. Stores the raw payload for replay." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="425" width="560" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="db5" value="&lt;b&gt;runs&lt;/b&gt; — per-cycle log: status, alert_count, adapter health, error." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="530" width="560" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="db6" value="&lt;b&gt;app_state&lt;/b&gt; — KV runtime state: *_bootstrap_complete, last_gpt_stats, last_usage,&lt;br&gt;scheduler_next_run, watermark:{source}, budget:openai_calls:{date}, source_fail:{source}" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="620" width="560" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="db7" value="&lt;b&gt;runtime_settings&lt;/b&gt; — (key, value, updated_at) overrides from /yc config set; survives restart, applied at the next cycle." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="725" width="560" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="db8" value="&lt;b&gt;slack_install&lt;/b&gt; — OAuth bot token per team_id (fallback when SLACK_BOT_TOKEN unset)." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="825" width="560" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="db9" value="&lt;b&gt;pond_responses&lt;/b&gt; — idempotency cache for POST /runs." style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;size=12;" vertex="1" parent="p3-1">
+          <mxGeometry x="60" y="915" width="560" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rvHdr" value="Human review loop — /yc review → rejudge_review_queue() (pipeline.py:445)" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="700" y="70" width="620" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rvA" value="&lt;b&gt;/yc review&lt;/b&gt; (admin) → rejudge_review_queue(limit=25)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="110" width="520" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rvB" value="db.list_review_rows(25) — seen_items WHERE disposition = &quot;review&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="185" width="520" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rvC" value="_item_from_review_row(row) — rebuild the CanonicalItem from the stored raw payload&lt;br&gt;(author, handle and post text are recovered, not re-fetched)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="260" width="520" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rvD" value="reviewed &amp;lt; openai_max_calls_per_cycle?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p3-1">
+          <mxGeometry x="760" y="345" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="rvE" value="social_classifier.classify(item, names, hosts, handles)&lt;br&gt;&lt;i&gt;re-judged with the current thresholds and prompt&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="460" width="520" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="rvF1" value="&lt;b&gt;PROMOTED&lt;/b&gt;&lt;br&gt;alert → reserve_item(&quot;evidence&quot;)&lt;br&gt;+ reserve_alert()&lt;br&gt;+ resolve_review(&quot;evidence&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p3-1">
+          <mxGeometry x="700" y="560" width="255" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rvF2" value="&lt;b&gt;STILL DEFERRED&lt;/b&gt;&lt;br&gt;gpt_review:* → stays in the queue&lt;br&gt;&lt;i&gt;a second review verdict must never&lt;br&gt;become a permanent rejection&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="p3-1">
+          <mxGeometry x="985" y="560" width="255" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rvF3" value="&lt;b&gt;CLEARED&lt;/b&gt;&lt;br&gt;persist → resolve_review(&quot;rejected&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p3-1">
+          <mxGeometry x="700" y="670" width="255" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rvF4" value="&lt;b&gt;DEFERRED&lt;/b&gt;&lt;br&gt;persist=False, cap hit,&lt;br&gt;bad payload or classify error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;" vertex="1" parent="p3-1">
+          <mxGeometry x="985" y="670" width="255" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rvG" value="if promoted → deliver_outbox() → Slack&lt;br&gt;returns {reviewed, promoted[], cleared, deferred, promoted_alerts[], promoted_names[], delivered}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="775" width="520" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arHdr" value="Offline audit replay — audit_replay.py (never runs inside a cycle)" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="700" y="880" width="620" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ar1" value="CLI &lt;b&gt;audit &amp;lt;run_id&amp;gt;&lt;/b&gt; → summarize_run(db, run_id)&lt;br&gt;aggregate outcomes + reasons, list alert keys — no reclassification" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="920" width="520" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ar2" value="&lt;b&gt;replay_run(db, classifier, run_id)&lt;/b&gt;&lt;br&gt;re-runs classify on captured stage=&quot;classify&quot; rows&lt;br&gt;&lt;b&gt;no collect · no DB write · no Slack&lt;/b&gt;&lt;br&gt;emits old→new transition counts over&lt;br&gt;alert | review | rejected | deferred | unparseable&lt;br&gt;&lt;i&gt;the safe way to evaluate a threshold or prompt change&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p3-1">
+          <mxGeometry x="720" y="1000" width="520" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="scHdr" value="HTTP + Slack control surface (pond_server.py · slack_app.py)" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="p3-1">
+          <mxGeometry x="1320" y="70" width="560" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="sc1" value="&lt;b&gt;FastAPI app&lt;/b&gt; (create_app) — started by `serve`, hosts APScheduler&lt;br&gt;&lt;br&gt;GET&#160;&#160;/healthz&lt;br&gt;GET&#160;&#160;/manifest&lt;br&gt;POST /runs&#160;&#160;(Bearer pond_access_key, idempotent)&lt;br&gt;GET&#160;&#160;/tasks/{task_id}&lt;br&gt;GET&#160;&#160;/slack/install&#160;&#160;→ OAuth start&lt;br&gt;GET&#160;&#160;/slack/oauth_redirect → slack_install&lt;br&gt;POST /slack/commands&#160;&#160;(HMAC v0 signature verify)&lt;br&gt;&lt;br&gt;Lifespan: archive_known_noise → build_scheduler →&lt;br&gt;persist scheduler_next_run → start + schedule_first_run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;" vertex="1" parent="p3-1">
+          <mxGeometry x="1320" y="110" width="560" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="sc2" value="&lt;b&gt;Slash commands&lt;/b&gt; — /yc and /yc-status (Web API, not Bolt/Socket Mode)&lt;br&gt;&lt;br&gt;/yc  |  /yc status&#160;&#160;→ status blocks&lt;br&gt;/yc help&lt;br&gt;/yc config [show]&lt;br&gt;/yc config set &amp;lt;key&amp;gt; &amp;lt;value&amp;gt;&#160;&#160;*&lt;br&gt;/yc config reset &amp;lt;key&amp;gt;&#160;&#160;*&lt;br&gt;/yc scan  |  /yc scan dry&#160;&#160;*&lt;br&gt;/yc review&#160;&#160;*&lt;br&gt;/yc leads&lt;br&gt;/yc retry&lt;br&gt;&lt;br&gt;* admin-gated by slack_admin_users&lt;br&gt;Long actions ack immediately, then run in the background&lt;br&gt;&lt;b&gt;No interactive components&lt;/b&gt; — alert buttons are URL links only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=10;" vertex="1" parent="p3-1">
+          <mxGeometry x="1320" y="370" width="560" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="sc3" value="&lt;b&gt;Runtime-tunable&lt;/b&gt; via /yc config set → runtime_settings&lt;br&gt;&lt;br&gt;poll_interval_hours&#160;&#160;1–48&lt;br&gt;openai_min_confidence&#160;&#160;0–1&lt;br&gt;openai_immediate_min_confidence&#160;&#160;0–1&lt;br&gt;openai_max_calls_per_cycle&#160;&#160;0–200&lt;br&gt;openai_max_calls_per_day&#160;&#160;0–2000&lt;br&gt;twitter_lookback_days&#160;&#160;1–30&lt;br&gt;twitter_current_batches&#160;&#160;[SWF]dd csv, 1–6&lt;br&gt;linkedin_total_posts&#160;&#160;1–100&lt;br&gt;yc_official_alert_max_age_days&#160;&#160;1–30" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=10;" vertex="1" parent="p3-1">
+          <mxGeometry x="1320" y="690" width="560" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="sc4" value="&lt;b&gt;Env-fixed&lt;/b&gt; (.env only — restart required)&lt;br&gt;&lt;br&gt;openai_model&#160;&#160;(default gpt-5.6-luna)&lt;br&gt;&lt;b&gt;openai_review_min_confidence&#160;&#160;0.65 — NOT Slack-tunable&lt;/b&gt;&lt;br&gt;openai_timeout_seconds / max_retries / max_concurrency&lt;br&gt;API keys (OpenAI, TwitterAPI.io, Apify, Slack, Pond)&lt;br&gt;database_path · port · log_level · public_base_url&lt;br&gt;slack_admin_users · slack_channel_id · slack_ops_channel_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=10;" vertex="1" parent="p3-1">
+          <mxGeometry x="1320" y="920" width="560" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p3e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvA" target="rvB"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvB" target="rvC"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvC" target="rvD"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e4" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvD" target="rvE"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvE" target="rvF1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvE" target="rvF2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;" edge="1" parent="p3-1" source="rvF1" target="rvG"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e8" value="reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#999999;" edge="1" parent="p3-1" source="db1" target="rvB"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e9" value="reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#999999;" edge="1" parent="p3-1" source="db4" target="ar2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e10" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#999999;" edge="1" parent="p3-1" source="sc3" target="db7"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
