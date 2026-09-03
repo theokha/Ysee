@@ -40,6 +40,13 @@ already-public company, rejections/application stories, speculation about unname
 Rules:
 - Distinguish a PRODUCT from its owning COMPANY (e.g. "box by @asciidotdev" -> product box,
   company Ascii). Never invent a name, site, batch, or relationship.
+- company_name is the STARTUP, never the accelerator. "YC", "Y Combinator", "a16z",
+  "Speedrun" and "@speedrun" name the program that backs the company. If the post never
+  names the startup ("I'm the CEO of an a16z-backed company"), set company_name to null
+  rather than falling back to the program's name.
+- program names the accelerator: "YC" or "Speedrun". A YC batch looks like S26/W26/F26;
+  a Speedrun batch looks like SR007. Report the batch the post actually gives, and let it
+  match the program - never label an SR batch as YC or vice versa.
 - signal_kind MUST be one of: "first_party_acceptance", "first_party_launch",
   "new_company_report", or "none".
 - For new_company_report, the company must be named and the accelerator named in the post.
@@ -266,7 +273,12 @@ class GPTSocialClassifier:
         valid_batch = _valid_batch(batch, judgement.program) or (
             speedrun_program and _explicit_speedrun_announcement(item.content_text)
         )
-        company_valid = bool(company) and not GENERIC_COMPANY.fullmatch(company)
+        accelerator_as_company = _names_the_accelerator(company, judgement.company_handle)
+        company_valid = (
+            bool(company)
+            and not GENERIC_COMPANY.fullmatch(company)
+            and not accelerator_as_company
+        )
 
         reason_text = judgement.reason.strip()
         contradictory_negative = (
@@ -325,7 +337,7 @@ class GPTSocialClassifier:
                 normalized = normalize_company(company)
                 result = Classification(
                     Alert(
-                        AlertKind.EARLY_YC_LAUNCH,
+                        _alert_kind(judgement, speedrun_program),
                         item,
                         f"early:{normalized}",
                         judgement.confidence,
@@ -349,7 +361,8 @@ class GPTSocialClassifier:
         if not company_valid or not evidence_valid or not valid_batch:
             _store_review_company(item, company)
             failed = (
-                "generic_or_missing_company" if not company_valid
+                "accelerator_named_as_company" if accelerator_as_company
+                else "generic_or_missing_company" if not company_valid
                 else "unsupported_evidence" if not evidence_valid
                 else "invalid_or_missing_batch"
             )
@@ -419,7 +432,7 @@ class GPTSocialClassifier:
             return result
 
         normalized = normalize_company(item.company_name)
-        kind = _alert_kind(judgement)
+        kind = _alert_kind(judgement, speedrun_program)
         result = Classification(
             Alert(
                 kind,
@@ -506,6 +519,49 @@ def _is_speedrun_program(program: str | None, text: str) -> bool:
     )
 
 
+# The accelerator is not a company. When the model returns one of these as
+# `company_name` it has failed to identify the startup being announced, and an
+# alert headlined "a16z Speedrun / not yet listed by a16z" is nonsense. Matched
+# against `normalize_company` output, which lowercases and strips punctuation.
+ACCELERATOR_NAMES = frozenset({
+    "a16z",
+    "a16z speedrun",
+    "andreessen horowitz",
+    "speedrun",
+    "y combinator",
+    "yc",
+    "ycombinator",
+})
+ACCELERATOR_HANDLES = frozenset({"a16z", "speedrun", "ycombinator"})
+
+
+def _names_the_accelerator(company: str | None, handle: str | None) -> bool:
+    """True when the program itself was returned in place of the company.
+
+    A founder writing "I'm the CEO of an a16z @speedrun-backed company" names no
+    startup at all, and the model sometimes fills the gap with the accelerator.
+    The handle is checked too: @speedrun belongs to the program, never to a
+    company it funds.
+    """
+    if company and normalize_company(company) in ACCELERATOR_NAMES:
+        return True
+    return bool(handle) and str(handle).lstrip("@").lower() in ACCELERATOR_HANDLES
+
+
+def _is_speedrun_signal(judgement: SocialJudgement, speedrun_in_text: bool) -> bool:
+    """Which program this alert belongs to.
+
+    The batch code is the most specific evidence available -- SR007 is Speedrun
+    and F26 is YC no matter what else the post name-drops -- so it decides
+    alone when present. Only a post without one falls back to the program field
+    and the text.
+    """
+    batch = (judgement.batch or "").strip()
+    if batch:
+        return bool(VALID_SPEEDRUN_BATCH.fullmatch(batch)) or batch.upper().startswith("SR")
+    return "speedrun" in (judgement.program or "").lower() or speedrun_in_text
+
+
 def _explicit_speedrun_announcement(text: str) -> bool:
     return bool(
         CURRENT_ANNOUNCEMENT.search(text)
@@ -513,9 +569,8 @@ def _explicit_speedrun_announcement(text: str) -> bool:
     )
 
 
-def _alert_kind(judgement: SocialJudgement) -> AlertKind:
-    program = (judgement.program or "").lower()
-    if "speedrun" in program:
+def _alert_kind(judgement: SocialJudgement, speedrun_in_text: bool = False) -> AlertKind:
+    if _is_speedrun_signal(judgement, speedrun_in_text):
         return AlertKind.EARLY_SPEEDRUN_LAUNCH
     if judgement.is_accelerator_acceptance and not judgement.is_product_launch_only:
         return AlertKind.EARLY_FOUNDER
@@ -523,12 +578,24 @@ def _alert_kind(judgement: SocialJudgement) -> AlertKind:
 
 
 def _valid_batch(batch: str, program: str | None) -> bool:
+    """Whether the batch code is a well-formed code for either program.
+
+    The code's own shape decides which pattern it must satisfy: SR007 is a
+    Speedrun batch and F26 a YC one regardless of the program field, which the
+    model fills from whatever the post name-drops and often gets wrong when a
+    post mentions both. A code valid for either program is accepted; which
+    program the alert is headlined under is `_is_speedrun_signal`'s call.
+    """
+    batch = batch.strip()
     if not batch:
         return False
-    normalized_program = (program or "").lower()
-    if "speedrun" in normalized_program or "speedrun" in batch.lower() or batch.upper().startswith("SR"):
-        return bool(VALID_SPEEDRUN_BATCH.fullmatch(batch.strip()))
-    return bool(VALID_YC_BATCH.fullmatch(batch.strip()))
+    if "speedrun" in batch.lower() or batch.upper().startswith("SR"):
+        return bool(VALID_SPEEDRUN_BATCH.fullmatch(batch))
+    if VALID_YC_BATCH.fullmatch(batch):
+        return True
+    # A Speedrun program with a code shaped like neither is still invalid; the
+    # program field only matters once the code itself is inconclusive.
+    return "speedrun" in (program or "").lower() and bool(VALID_SPEEDRUN_BATCH.fullmatch(batch))
 
 
 def _store_review_company(item: CanonicalItem, company: str) -> None:
@@ -536,10 +603,15 @@ def _store_review_company(item: CanonicalItem, company: str) -> None:
 
     Without this the review row keeps the adapter's NULL company_name and renders
     as a bare "X post"/"LinkedIn post". Only a real name is stored: a generic
-    label is exactly why the row went to review in the first place.
+    label, or the accelerator's own name, is exactly why the row went to review
+    in the first place -- storing it would relabel the row with a name the
+    reviewer then has to un-learn.
     """
-    if company and not GENERIC_COMPANY.fullmatch(company):
-        item.company_name = company
+    if not company or GENERIC_COMPANY.fullmatch(company):
+        return
+    if _names_the_accelerator(company, None):
+        return
+    item.company_name = company
 
 
 def _incomplete_reason(judgement: SocialJudgement) -> str:

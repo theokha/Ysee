@@ -151,3 +151,13 @@ def test_alert_without_a_reason_still_renders() -> None:
     rendered = str(blocks)
     assert "Confidence 0.80" in rendered
     assert "None" not in rendered
+
+
+def test_speedrun_and_yc_launches_are_headlined_differently() -> None:
+    """A Speedrun company headlined "Not yet listed by YC" names the wrong program."""
+    item = _social_item()
+    speedrun, blocks = format_alert(Alert(AlertKind.EARLY_SPEEDRUN_LAUNCH, item, "early:h"))
+    yc, _ = format_alert(Alert(AlertKind.EARLY_YC_LAUNCH, item, "early:h"))
+    assert "SPEEDRUN" in speedrun and "a16z" in str(blocks)
+    assert "YC" in yc
+    assert speedrun != yc

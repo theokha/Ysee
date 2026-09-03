@@ -47,6 +47,7 @@ REASON_LABELS = {
     "generic_or_missing_company": "Company name generic or missing",
     "unsupported_evidence": "Quoted evidence not found in the post",
     "invalid_or_missing_batch": "Batch code invalid or missing",
+    "accelerator_named_as_company": "Named the accelerator, not the company",
     "unresolved_company_handle": "Could not verify the company handle",
     "unresolved_product_owner": "Could not tell who owns the product",
     "not_first_party": "Not posted by the founder",

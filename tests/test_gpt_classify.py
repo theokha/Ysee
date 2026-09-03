@@ -819,3 +819,196 @@ async def test_candidate_company_handle_official_still_suppresses() -> None:
     )
     assert result.alert is None
     assert result.reason == "company_handle_already_official"
+
+
+# --- program attribution ----------------------------------------------------
+#
+# Two live misfires drove these. A Speedrun SR007 report was headlined "EARLY YC
+# LAUNCH | Not yet listed by YC", and a post that never named its startup was
+# alerted with company "a16z Speedrun" -- the program standing in for the
+# company it backs.
+
+
+MUNARI_TEXT = (
+    "EARLY: @munariai - 6 followers (Robotics). Munari just launched. "
+    "Operator scoring for robot training data. aug 30: a16z @speedrun SR007. "
+    "sep 1: @munariai goes live."
+)
+
+
+def _munari_judgement(**overrides: object) -> SocialJudgement:
+    fields: dict[str, object] = {
+        "is_founder_self_announcement": False,
+        "is_third_party_report": True,
+        "signal_kind": "new_company_report",
+        "company_name": "Munari",
+        "program": "Speedrun",
+        "batch": "SR007",
+        "evidence_quotes": ["Munari just launched", "a16z @speedrun SR007"],
+        "confidence": 0.95,
+        "reason": "Reports Munari newly launching via a16z Speedrun",
+    }
+    fields.update(overrides)
+    return SocialJudgement(**fields)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_third_party_speedrun_report_is_not_headlined_as_yc() -> None:
+    """The third-party path hardcoded the YC kind, so every report read as YC."""
+    classifier = classifier_with_result(_munari_judgement())
+    result = await classifier.classify(social_item(MUNARI_TEXT), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_SPEEDRUN_LAUNCH
+
+
+@pytest.mark.asyncio
+async def test_third_party_yc_report_still_headlined_as_yc() -> None:
+    classifier = classifier_with_result(_munari_judgement(
+        company_name="Metal", program="YC", batch="YC S26",
+        evidence_quotes=["Metal (YC S26)", "just raised a $12M seed round"],
+        reason="Reports YC S26 company Metal raised funding",
+    ))
+    result = await classifier.classify(social_item(THIRD_PARTY_TEXT), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_YC_LAUNCH
+
+
+@pytest.mark.asyncio
+async def test_sr_batch_beats_a_contradicting_program_field() -> None:
+    """The batch code is the most specific evidence, so it decides the program.
+
+    Munari's post name-drops both accelerators; an SR batch settles which one.
+    """
+    classifier = classifier_with_result(_munari_judgement(program="YC"))
+    result = await classifier.classify(social_item(MUNARI_TEXT), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_SPEEDRUN_LAUNCH
+
+
+@pytest.mark.asyncio
+async def test_yc_batch_beats_speedrun_mentioned_elsewhere_in_the_post() -> None:
+    """The same rule in reverse: an F26 batch is YC even beside "@speedrun"."""
+    text = "Wired is now YC F26. (We were rejected from a16z @speedrun last year.)"
+    classifier = classifier_with_result(_munari_judgement(
+        company_name="Wired", program="Speedrun", batch="F26",
+        evidence_quotes=["Wired is now YC F26"],
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_YC_LAUNCH
+
+
+SPEEDRUN_NO_COMPANY_TEXT = (
+    "You don't need a demo to sell. I'm the co-founder and CEO of an a16z "
+    "@speedrun-backed company, and we've grown from $0 to a $360K annualized "
+    "run rate in the last three months."
+)
+
+
+def _no_company_judgement(**overrides: object) -> SocialJudgement:
+    fields: dict[str, object] = {
+        "is_founder_self_announcement": True,
+        "is_first_party": True,
+        "is_current_announcement": True,
+        "is_accelerator_acceptance": True,
+        "company_name": "a16z Speedrun",
+        "company_handle": "@speedrun",
+        "program": "a16z Speedrun",
+        "batch": "",
+        "evidence_quotes": ["I'm the co-founder and CEO of an a16z @speedrun-backed company"],
+        "confidence": 1.0,
+        "reason": "Co-founder announces acceptance into a16z Speedrun",
+    }
+    fields.update(overrides)
+    return SocialJudgement(**fields)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_accelerator_returned_as_company_is_not_alerted() -> None:
+    """A post naming no startup must not alert with the program as the company."""
+    classifier = classifier_with_result(_no_company_judgement())
+    result = await classifier.classify(
+        social_item(SPEEDRUN_NO_COMPANY_TEXT), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:accelerator_named_as_company"
+
+
+@pytest.mark.asyncio
+async def test_accelerator_name_is_not_stamped_onto_the_review_row() -> None:
+    """Otherwise `/yc leads` shows "a16z Speedrun" as a lead in its own right."""
+    item = social_item(SPEEDRUN_NO_COMPANY_TEXT)
+    await classifier_with_result(_no_company_judgement()).classify(item, set(), set(), set())
+    assert item.company_name is None
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["a16z Speedrun", "Speedrun", "speedrun", "YC", "Y Combinator", "y combinator", "a16z"],
+)
+@pytest.mark.asyncio
+async def test_every_accelerator_spelling_is_caught(name: str) -> None:
+    classifier = classifier_with_result(_no_company_judgement(
+        company_name=name, company_handle=None
+    ))
+    result = await classifier.classify(
+        social_item(SPEEDRUN_NO_COMPANY_TEXT), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:accelerator_named_as_company"
+
+
+@pytest.mark.asyncio
+async def test_the_programs_own_handle_is_never_a_company_handle() -> None:
+    """@speedrun belongs to the program, so a company claiming it named nothing."""
+    classifier = classifier_with_result(_no_company_judgement(company_name="Acme"))
+    result = await classifier.classify(
+        social_item(SPEEDRUN_NO_COMPANY_TEXT), set(), set(), set()
+    )
+    assert result.alert is None
+    assert result.reason == "gpt_review:accelerator_named_as_company"
+
+
+@pytest.mark.asyncio
+async def test_a_real_company_in_a_speedrun_post_still_alerts() -> None:
+    """The gate must not swallow posts that do name their startup."""
+    text = "Today I'm announcing Kairo is backed by a16z @speedrun. SR007."
+    classifier = classifier_with_result(_no_company_judgement(
+        company_name="Kairo", company_handle="kairoai", batch="SR007",
+        evidence_quotes=["Today I'm announcing Kairo is backed by a16z"],
+        confidence=0.95,
+    ))
+    result = await classifier.classify(social_item(text), set(), set(), set())
+    assert result.alert
+    assert result.alert.kind == AlertKind.EARLY_SPEEDRUN_LAUNCH
+    assert result.alert.dedup_key == "early:kairo"
+
+
+@pytest.mark.asyncio
+async def test_third_party_report_naming_only_the_accelerator_is_not_alerted() -> None:
+    """The third-party path has its own company check and needs the same gate."""
+    classifier = classifier_with_result(_munari_judgement(
+        company_name="a16z Speedrun", company_handle=None
+    ))
+    result = await classifier.classify(social_item(MUNARI_TEXT), set(), set(), set())
+    assert result.alert is None
+
+
+@pytest.mark.parametrize(
+    ("batch", "program", "valid"),
+    [
+        ("SR007", "Speedrun", True),
+        ("SR007", "YC", True),        # shape wins over a wrong program field
+        ("F26", "Speedrun", True),
+        ("YC S26", "YC", True),
+        ("SR7", "Speedrun", False),   # malformed Speedrun code
+        ("Q99", "YC", False),
+        ("", "YC", False),
+    ],
+)
+def test_batch_validity_follows_the_codes_own_shape(
+    batch: str, program: str, valid: bool
+) -> None:
+    from yc_monitor.gpt_classify import _valid_batch
+
+    assert _valid_batch(batch, program) is valid
