@@ -215,6 +215,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"{result.get('delivered_count', 0)} delivered."
                 ),
             }
+        elif text == "review_requested":
+            result = await pipeline.rejudge_review_queue(25)
+            promoted_keys = result.get("promoted")
+            promoted_names = result.get("promoted_names")
+            summary = (
+                f"Re-reviewed {result.get('reviewed', 0)} queued post(s): "
+                f"{len(promoted_keys) if isinstance(promoted_keys, list) else 0} promoted "
+                f"(and sent), {result.get('cleared', 0)} cleared, "
+                f"{result.get('deferred', 0)} still deferred."
+            )
+            if isinstance(promoted_names, list) and promoted_names:
+                summary += (
+                    " New alerts: "
+                    + ", ".join(str(name) for name in promoted_names[:8])
+                )
+            response = {"response_type": "ephemeral", "text": summary}
         elif text == "leads_requested":
             leads = pipeline.db.recent_leads(25)
             response = {

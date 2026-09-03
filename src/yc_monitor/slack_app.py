@@ -116,14 +116,15 @@ def handle_slash_command(
                 "`/yc config reset <key>` - back to .env default (admin)\n"
                 "`/yc scan` - run a live cycle now (admin)\n"
                 "`/yc scan dry` - dry-run a cycle, nothing posted (admin)\n"
+                "`/yc review` - re-judge queued review posts with current filters (admin)\n"
                 "`/yc leads` - recent detections\n"
                 "`/yc retry` - retry failed Slack deliveries"
             ),
         }
     if action == "config":
         return _handle_config(parts[1:], user_id, db, admin_users)
-    if action in {"scan", "leads", "retry"}:
-        if action == "scan" and admin_users is not None and user_id not in admin_users:
+    if action in {"scan", "review", "leads", "retry"}:
+        if action in {"scan", "review"} and admin_users is not None and user_id not in admin_users:
             return {
                 "response_type": "ephemeral",
                 "text": "Only admins can trigger scans (they spend API budget).",
@@ -134,6 +135,8 @@ def handle_slash_command(
                 "response_type": "ephemeral",
                 "text": "dry_scan_requested" if dry else "scan_requested",
             }
+        if action == "review":
+            return {"response_type": "ephemeral", "text": "review_requested"}
         if action == "leads":
             return {"response_type": "ephemeral", "text": "leads_requested"}
         return {"response_type": "ephemeral", "text": "retry_requested"}

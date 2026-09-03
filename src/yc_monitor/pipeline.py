@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from slack_sdk.errors import SlackClientError
@@ -187,6 +188,63 @@ def ingest_yc_directory(
     return alerts
 
 
+def _item_from_review_row(row: dict[str, Any]) -> CanonicalItem | None:
+    """Rebuild the CanonicalItem a queued review row was stored from.
+
+    The payload is the adapter's raw post record, so author name/handle and post
+    text are recovered from it rather than re-fetched.
+    """
+    try:
+        source = Source(str(row["source"]))
+    except ValueError:
+        return None
+    payload: dict[str, Any] = {}
+    raw = row.get("payload")
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            payload = parsed
+    author = payload.get("author")
+    if not isinstance(author, dict):
+        author = {}
+    stored_company = row.get("company_name")
+    company = (
+        stored_company.strip()
+        if isinstance(stored_company, str) and stored_company.strip()
+        else None
+    )
+    text = str(payload.get("text") or payload.get("content") or "")
+    return CanonicalItem(
+        source=source,
+        item_id=str(row["item_id"]),
+        company_name=company,
+        canonical_url=str(row["canonical_url"]),
+        description=text,
+        content_text=text,
+        founder_name=_author_field(author, "name"),
+        founder_handle=_author_field(
+            author, "userName", "username", "publicIdentifier", lower=True, strip_at=True
+        ),
+        author_url=_author_field(author, "linkedinUrl", "url"),
+        raw=payload,
+    )
+
+
+def _author_field(
+    author: dict[str, Any], *keys: str, lower: bool = False, strip_at: bool = False
+) -> str | None:
+    for key in keys:
+        value = author.get(key)
+        if isinstance(value, str) and value.strip():
+            if strip_at:
+                value = value.lstrip("@")
+            return value.strip().lower() if lower else value.strip()
+    return None
+
+
 class MonitorPipeline:
     def __init__(self, settings: Settings, social_classifier: SocialJudge | None = None) -> None:
         # `base_settings` never changes, so runtime overrides are always
@@ -335,6 +393,80 @@ class MonitorPipeline:
             logger.exception("Monitor run failed")
             self.db.finish_run(run_id, "failed", len(alerts), health, type(exc).__name__)
             raise
+
+    async def rejudge_review_queue(self, limit: int = 25) -> dict[str, object]:
+        """Replay queued `review` rows through the classifier with current filters.
+
+        Stale gate decisions get a second chance: a row that now alerts is
+        promoted to evidence and its company alert posts to Slack, a row the
+        classifier now firmly rejects is cleared to `rejected`, and anything the
+        classifier still defers (budget, API failure, unresolved handle) stays in
+        the queue for a later pass.
+        """
+        rows = self.db.list_review_rows(limit)
+        cap = max(self.settings.openai_max_calls_per_cycle, 0)
+        begin_cycle = getattr(self.social_classifier, "begin_cycle", None)
+        if callable(begin_cycle):
+            begin_cycle()
+        names, hosts, handles = self.db.official_identities()
+        promoted: list[str] = []
+        promoted_alerts: list[str] = []
+        promoted_names: list[str] = []
+        cleared = 0
+        deferred = 0
+        reviewed = 0
+        for row in rows:
+            # The cap bounds classifier spend, so items skipped for a bad payload
+            # or a classify failure never consume budget.
+            if reviewed >= cap:
+                deferred += 1
+                continue
+            item = _item_from_review_row(row)
+            if item is None:
+                logger.warning("Skipping unparseable review row %s", row.get("dedup_key"))
+                deferred += 1
+                continue
+            dedup_key = str(row["dedup_key"])
+            try:
+                classification = await self.social_classifier.classify(
+                    item, names, hosts, handles
+                )
+            except Exception as exc:  # noqa: BLE001 -- one bad row must not abort the batch
+                logger.warning(
+                    "Re-judging %s failed: %s", dedup_key, type(exc).__name__
+                )
+                deferred += 1
+                continue
+            reviewed += 1
+            if classification.alert:
+                alert = classification.alert
+                # The post key already exists as this very review row, so a False
+                # return is expected; it only guards a genuinely new post row.
+                self.db.reserve_item(
+                    dedup_key, item, "evidence", classification.reason
+                )
+                if self.db.reserve_alert(alert):
+                    promoted.append(dedup_key)
+                    promoted_alerts.append(alert.dedup_key)
+                    promoted_names.append(item.company_name or dedup_key)
+                self.db.resolve_review(dedup_key, "evidence", classification.reason)
+            elif classification.persist:
+                if self.db.resolve_review(dedup_key, "rejected", classification.reason):
+                    cleared += 1
+            else:
+                deferred += 1
+        delivered = 0
+        if promoted:
+            delivered = await self.deliver_outbox()
+        return {
+            "reviewed": reviewed,
+            "promoted": promoted,
+            "cleared": cleared,
+            "deferred": deferred,
+            "promoted_alerts": promoted_alerts,
+            "promoted_names": promoted_names,
+            "delivered": delivered,
+        }
 
     def _sync_classifier_limits(self) -> None:
         """Propagate runtime-tunable GPT knobs onto the live classifier.

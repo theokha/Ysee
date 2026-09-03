@@ -12,6 +12,8 @@ This is a single-workspace app, not a Slack Marketplace listing. OAuth tokens ar
 
 Slash command `/yc` (or `/yc status`) replies with ephemeral monitor status. It requires `SLACK_SIGNING_SECRET`, the `commands` bot scope, and a public Request URL of `PUBLIC_BASE_URL/slack/commands`. Reinstall the app after adding the command. Slack cards include original-post quotes for early signals, directory/website buttons, and an upgrade note when a previously early company is later confirmed by YC or a16z Speedrun.
 
+Actions: `/yc leads` lists recent detections, `/yc retry` re-sends failed Slack deliveries, and `/yc scan` / `/yc scan dry` trigger a live or preview cycle. `/yc review` replays up to `OPENAI_MAX_CALLS_PER_CYCLE` queued `review` rows through the classifier with the current filters, so a stale gate decision can still be promoted after a filter change: promoted rows become `evidence`, their company alert posts to Slack, firmly rejected rows move to `rejected`, and anything still deferred (budget, API failure, unresolved handle) stays queued for the next `/yc review`. `/yc scan`, `/yc review`, and `/yc config set|reset` are admin-gated when `SLACK_ADMIN_USERS` is set.
+
 ## X
 
 Create a TwitterAPI.io key and set `TWITTERAPI_IO_API_KEY`. Queries use the Latest advanced-search endpoint with bounded pages (`TWITTER_MAX_PAGES`, default 3) and append `since_time:<unix timestamp>` for a rolling window. `TWITTER_LOOKBACK_DAYS` defaults to 7 and accepts 1–30 days. The window intentionally overlaps every eight-hour cycle; persistent tweet IDs prevent duplicate alerts.

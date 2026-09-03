@@ -269,6 +269,34 @@ class Database:
             leads.append(record)
         return leads
 
+    def list_review_rows(self, limit: int = 25) -> list[dict[str, Any]]:
+        """Oldest-first queued review rows, with `payload` left as raw JSON text.
+
+        The caller parses the payload so this stays a cheap, schema-stable read;
+        the queue is replayed by /yc review, not rendered here.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT dedup_key, source, item_id, company_name, canonical_url,
+                          reason, payload, first_seen_at
+                   FROM seen_items
+                   WHERE disposition='review'
+                   ORDER BY first_seen_at ASC
+                   LIMIT ?""",
+                (max(1, min(limit, 100)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def resolve_review(self, dedup_key: str, new_disposition: str, reason: str | None) -> bool:
+        """Move a row out of the review queue; False when it already left."""
+        with self.connect() as db:
+            cursor = db.execute(
+                """UPDATE seen_items SET disposition=?, reason=COALESCE(?, reason)
+                   WHERE dedup_key=? AND disposition='review'""",
+                (new_disposition, reason, dedup_key),
+            )
+            return cursor.rowcount == 1
+
     def reserve_item(
         self, key: str, item: CanonicalItem, disposition: str, reason: str | None = None
     ) -> bool:
