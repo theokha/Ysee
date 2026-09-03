@@ -245,20 +245,27 @@ class Database:
         for row in rows:
             record = dict(row)
             snippet = ""
+            author_name: str | None = None
             raw = record.pop("payload", None)
             if isinstance(raw, str) and raw:
                 try:
                     parsed = json.loads(raw)
-                    if isinstance(parsed, dict):
-                        snippet = str(
-                            parsed.get("text")
-                            or parsed.get("content")
-                            or parsed.get("one_liner")
-                            or ""
-                        )[:240]
                 except json.JSONDecodeError:
-                    snippet = ""
+                    parsed = None
+                if isinstance(parsed, dict):
+                    snippet = str(
+                        parsed.get("text")
+                        or parsed.get("content")
+                        or parsed.get("one_liner")
+                        or ""
+                    )[:240]
+                    author = parsed.get("author")
+                    if isinstance(author, dict):
+                        candidate = author.get("name")
+                        if isinstance(candidate, str) and candidate.strip():
+                            author_name = candidate.strip()
             record["snippet"] = snippet
+            record["author_name"] = author_name
             leads.append(record)
         return leads
 

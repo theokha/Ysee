@@ -14,6 +14,8 @@ def _lead(
     reason: str | None = None,
     alerted_at: str | None = None,
     first_seen_at: str | None = None,
+    author_name: str | None = None,
+    snippet: str | None = None,
 ) -> dict[str, object]:
     return {
         "dedup_key": dedup_key,
@@ -24,6 +26,8 @@ def _lead(
         "reason": reason,
         "alerted_at": alerted_at,
         "first_seen_at": first_seen_at or alerted_at,
+        "author_name": author_name,
+        "snippet": snippet,
     }
 
 
@@ -103,6 +107,130 @@ def test_review_row_without_company_name_falls_back_to_source() -> None:
     ]
     rendered = _text(format_leads_blocks(leads))
     assert "X post" in rendered
+
+
+def test_review_row_renders_author_name_when_no_company() -> None:
+    leads = [
+        _lead(
+            "linkedin:900",
+            "linkedin",
+            "900",
+            "review",
+            reason="gpt_review:unresolved_company_handle",
+            author_name="Dana Reyes",
+            first_seen_at="2026-09-02T08:00:00+00:00",
+        ),
+    ]
+    rendered = _text(format_leads_blocks(leads))
+    assert "Dana Reyes" in rendered
+    assert "LinkedIn post" not in rendered
+
+
+def test_company_name_wins_over_author_name() -> None:
+    leads = [
+        _lead(
+            "linkedin:901",
+            "linkedin",
+            "901",
+            "review",
+            company_name="Harbor",
+            reason="gpt_review:needs_human_check",
+            author_name="Dana Reyes",
+            first_seen_at="2026-09-02T08:00:00+00:00",
+        ),
+    ]
+    rendered = _text(format_leads_blocks(leads))
+    assert "Harbor - needs_human_check" in rendered
+    assert "Dana Reyes" not in rendered
+
+
+def test_review_row_appends_snippet_excerpt() -> None:
+    leads = [
+        _lead(
+            "linkedin:902",
+            "linkedin",
+            "902",
+            "review",
+            reason="gpt_review:unresolved_company_handle",
+            author_name="Dana Reyes",
+            first_seen_at="2026-09-02T08:00:00+00:00",
+            snippet="We just opened our YC interview slot and the product ships next week.",
+        ),
+    ]
+    rendered = _text(format_leads_blocks(leads))
+    assert "> We just opened our YC interview slot" in rendered
+    assert rendered.count("> ") == 1
+
+
+def test_review_row_without_snippet_has_no_excerpt() -> None:
+    leads = [
+        _lead(
+            "linkedin:903",
+            "linkedin",
+            "903",
+            "review",
+            reason="gpt_review:unresolved_company_handle",
+            author_name="Dana Reyes",
+            first_seen_at="2026-09-02T08:00:00+00:00",
+            snippet="",
+        ),
+    ]
+    rendered = _text(format_leads_blocks(leads))
+    assert "> " not in rendered
+
+
+def test_review_snippet_is_truncated_and_single_line() -> None:
+    snippet = (
+        "line one with a hard break\nline two with\ttabs and   runs of spaces\n"
+        + ("tail" * 60)
+    )
+    leads = [
+        _lead(
+            "linkedin:904",
+            "linkedin",
+            "904",
+            "review",
+            reason="gpt_review:unresolved_company_handle",
+            author_name="Dana Reyes",
+            first_seen_at="2026-09-02T08:00:00+00:00",
+            snippet=snippet,
+        ),
+    ]
+    rendered = _text(format_leads_blocks(leads))
+    excerpt_lines = [line for line in rendered.split("\n") if line.startswith("> ")]
+    assert len(excerpt_lines) == 1
+    excerpt = excerpt_lines[0][2:]
+    assert "\n" not in excerpt
+    assert len(excerpt) == 120
+    assert excerpt.startswith("line one with a hard break line two with tabs and runs of spaces")
+
+
+def test_recent_leads_extracts_author_name_from_payload(tmp_path) -> None:
+    db = Database(str(tmp_path / "state.db"))
+    review_item = CanonicalItem(
+        Source.LINKEDIN,
+        "rev-9",
+        None,
+        "https://linkedin.com/a/9",
+        content_text="We are hiring a founding engineer for our seed round.",
+        founder_name="Dana Reyes",
+        raw={
+            "text": "We are hiring a founding engineer for our seed round.",
+            "author": {"name": "Dana Reyes", "userName": "danareyes"},
+        },
+    )
+    db.reserve_item(
+        "linkedin:rev-9", review_item, "review", "gpt_review:unresolved_company_handle"
+    )
+    leads = db.recent_leads(10)
+    assert len(leads) == 1
+    lead = leads[0]
+    assert lead["author_name"] == "Dana Reyes"
+    assert lead["snippet"].startswith("We are hiring a founding engineer")
+    assert "payload" not in lead
+    rendered = _text(format_leads_blocks(leads))
+    assert "Dana Reyes" in rendered
+    assert "> We are hiring a founding engineer" in rendered
 
 
 def test_date_comes_from_alerted_at() -> None:

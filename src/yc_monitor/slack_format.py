@@ -155,6 +155,8 @@ class _Lead:
     reason: str
     first_seen_at: str | None
     alerted_at: str | None
+    author_name: str | None = None
+    snippet: str | None = None
 
     @property
     def timestamp(self) -> datetime:
@@ -167,6 +169,8 @@ class _Lead:
     def label(self) -> str:
         if self.company_name:
             return self.company_name
+        if self.author_name:
+            return self.author_name
         if self.source == Source.TWITTER.value:
             return "X post"
         if self.source == Source.LINKEDIN.value:
@@ -197,6 +201,8 @@ def format_leads_blocks(leads: list[dict[str, Any]]) -> list[dict[str, object]]:
             reason=str(row.get("reason") or ""),
             first_seen_at=(str(row["first_seen_at"]) if row.get("first_seen_at") else None),
             alerted_at=(str(row["alerted_at"]) if row.get("alerted_at") else None),
+            author_name=(str(row["author_name"]) if row.get("author_name") else None),
+            snippet=(str(row["snippet"]) if row.get("snippet") else None),
         )
         for row in leads
     ]
@@ -244,10 +250,18 @@ def _alerted_line(lead: _Lead) -> str:
     return f"{lead.label()} - {lead.source_label()}, {date}"
 
 
+REVIEW_EXCERPT_MAX = 120
+
+
 def _review_line(lead: _Lead) -> str:
     reason = lead.reason.removeprefix("gpt_review:") or "needs review"
     date = lead.timestamp.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%b %-d")
-    return f"{lead.label()} - {reason}, {date}"
+    line = f"{lead.label()} - {reason}, {date}"
+    if lead.snippet:
+        excerpt = " ".join(lead.snippet.split())[:REVIEW_EXCERPT_MAX]
+        if excerpt:
+            line = f"{line}\n> {excerpt}"
+    return line
 
 
 def _collapse_by_company(rows: list[_Lead]) -> list[_Lead]:
