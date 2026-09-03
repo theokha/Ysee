@@ -86,6 +86,11 @@ class Database:
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS runtime_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS slack_outbox (
                     dedup_key TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
@@ -525,6 +530,33 @@ class Database:
                 "INSERT OR IGNORE INTO pond_responses VALUES (?, ?, ?)",
                 (key, json.dumps(response), _now()),
             )
+
+    def get_runtime_setting(self, key: str) -> str | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT value FROM runtime_settings WHERE key=?", (key,)
+            ).fetchone()
+        return str(row["value"]) if row else None
+
+    def set_runtime_setting(self, key: str, value: str) -> None:
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO runtime_settings(key, value, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value, updated_at=excluded.updated_at""",
+                (key, value, _now()),
+            )
+
+    def reset_runtime_setting(self, key: str) -> None:
+        with self.connect() as db:
+            db.execute("DELETE FROM runtime_settings WHERE key=?", (key,))
+
+    def all_runtime_settings(self) -> dict[str, str]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT key, value FROM runtime_settings ORDER BY key"
+            ).fetchall()
+        return {str(row["key"]): str(row["value"]) for row in rows}
 
     def get_pond_task(self, task_id: str) -> dict[str, Any] | None:
         """Sync agents never return 202, so /tasks/{id} only needs a spec-shaped miss."""

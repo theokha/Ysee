@@ -183,10 +183,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from yc_monitor.slack_app import slash_command_payload
 
         payload = slash_command_payload(body)
+        admins = {value.strip() for value in settings.slack_admin_users.split(",") if value.strip()}
         response = handle_slash_command(
             payload.get("command", ""),
             payload.get("text", ""),
             pipeline.db.status(),
+            user_id=payload.get("user_id", ""),
+            db=pipeline.db,
+            admin_users=admins if admins else None,
         )
         text = str(response.get("text") or "")
         if text == "dry_scan_requested":

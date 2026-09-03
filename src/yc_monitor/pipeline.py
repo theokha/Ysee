@@ -37,6 +37,7 @@ from yc_monitor.models import (
     HealthStatus,
     Source,
 )
+from yc_monitor.runtime_settings import apply_runtime_settings
 from yc_monitor.slack_app import SlackNotifier
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,10 @@ def ingest_yc_directory(
 
 class MonitorPipeline:
     def __init__(self, settings: Settings, social_classifier: SocialJudge | None = None) -> None:
+        # `base_settings` never changes, so runtime overrides are always
+        # recomputed from the .env defaults rather than layering on top of the
+        # previous cycle's already-overridden copy.
+        self.base_settings = settings
         self.settings = settings
         self.db = Database(settings.database_path)
         self.official_adapters, self.social_adapters = build_adapters(settings)
@@ -208,6 +213,16 @@ class MonitorPipeline:
         )
 
     async def run(self, dry_run: bool = False) -> dict[str, object]:
+        # Runtime overrides from /yc config take effect at the next cycle
+        # without a restart.
+        previous = self.settings
+        self.settings = apply_runtime_settings(self.db, self.base_settings)
+        if self.settings != previous:
+            # Rebuild only the adapters, which are cheap config carriers. The
+            # GPT classifier is refreshed in place below so an injected test
+            # double is never replaced by a live API client.
+            self.official_adapters, self.social_adapters = build_adapters(self.settings)
+            self._sync_classifier_limits()
         run_id = f"run_{uuid.uuid4().hex}"
         self.db.start_run(run_id)
         begin_cycle = getattr(self.social_classifier, "begin_cycle", None)
@@ -320,6 +335,23 @@ class MonitorPipeline:
             logger.exception("Monitor run failed")
             self.db.finish_run(run_id, "failed", len(alerts), health, type(exc).__name__)
             raise
+
+    def _sync_classifier_limits(self) -> None:
+        """Propagate runtime-tunable GPT knobs onto the live classifier.
+
+        The classifier is mutated in place rather than rebuilt so an injected
+        `SocialJudge` double (or a live AsyncOpenAI client) survives a config
+        change; non-GPT doubles are left untouched.
+        """
+        classifier = self.social_classifier
+        if not isinstance(classifier, GPTSocialClassifier):
+            return
+        classifier.min_confidence = self.settings.openai_min_confidence
+        classifier.immediate_min_confidence = self.settings.openai_immediate_min_confidence
+        classifier.max_calls_per_cycle = self.settings.openai_max_calls_per_cycle
+        current = classifier.stats
+        if isinstance(current, GPTCycleStats):
+            current.max_calls = self.settings.openai_max_calls_per_cycle
 
     async def deliver_outbox(self) -> int:
         delivered = 0

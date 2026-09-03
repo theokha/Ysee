@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     max_twitter_pages_per_day: int = Field(default=48, ge=0, le=500)
     max_linkedin_posts_per_day: int = Field(default=150, ge=0, le=2000)
     slack_ops_channel_id: str | None = None
+    slack_admin_users: str = ""
 
 
 @lru_cache
