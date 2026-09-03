@@ -115,12 +115,31 @@ class Database:
                     updated_at TEXT NOT NULL,
                     sent_at TEXT,
                     slack_channel TEXT,
-                    slack_ts TEXT
+                    slack_ts TEXT,
+                    run_id TEXT
                 );
+                CREATE TABLE IF NOT EXISTS audit_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    dedup_key TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    reason TEXT,
+                    confidence REAL NOT NULL DEFAULT 0,
+                    persist INTEGER NOT NULL DEFAULT 1,
+                    has_alert INTEGER NOT NULL DEFAULT 0,
+                    payload TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_decisions_run
+                    ON audit_decisions(run_id, source, item_id);
                 """
             )
             self._ensure_name_aliases_column(db)
             self._ensure_outbox_slack_columns(db)
+            self._ensure_outbox_run_lineage_columns(db)
             self._repair_legacy_yc_bootstrap_state(db)
 
     def _ensure_name_aliases_column(self, db: sqlite3.Connection) -> None:
@@ -134,6 +153,63 @@ class Database:
             db.execute("ALTER TABLE slack_outbox ADD COLUMN slack_channel TEXT")
         if "slack_ts" not in existing:
             db.execute("ALTER TABLE slack_outbox ADD COLUMN slack_ts TEXT")
+
+    def _ensure_outbox_run_lineage_columns(self, db: sqlite3.Connection) -> None:
+        existing = {str(row[1]) for row in db.execute("PRAGMA table_info(slack_outbox)")}
+        if "run_id" not in existing:
+            db.execute("ALTER TABLE slack_outbox ADD COLUMN run_id TEXT")
+
+    def record_audit_decision(
+        self,
+        run_id: str,
+        source: str,
+        item_id: str,
+        dedup_key: str,
+        stage: str,
+        outcome: str,
+        reason: str | None,
+        confidence: float,
+        persist: bool = True,
+        has_alert: bool = False,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Append one pipeline-stage outcome for a candidate in this run.
+
+        Rows are never updated or deleted, so a capped/deferred classification
+        that never reached seen_items still leaves an auditable trace. Payloads
+        are stored as raw adapter JSON exactly like seen_items does.
+        """
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO audit_decisions
+                   (run_id, source, item_id, dedup_key, stage, outcome, reason,
+                    confidence, persist, has_alert, payload, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    run_id,
+                    source,
+                    item_id,
+                    dedup_key,
+                    stage,
+                    outcome,
+                    reason,
+                    float(confidence),
+                    int(persist),
+                    int(has_alert),
+                    json.dumps(payload, default=str) if payload is not None else None,
+                    _now(),
+                ),
+            )
+
+    def audit_decisions_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT id, run_id, source, item_id, dedup_key, stage, outcome, reason,
+                          confidence, persist, has_alert, payload, created_at
+                   FROM audit_decisions WHERE run_id=? ORDER BY id""",
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def _repair_legacy_yc_bootstrap_state(self, db: sqlite3.Connection) -> None:
         """Remove pre-outbox YC baseline rows created by the original first run.
@@ -337,7 +413,7 @@ class Database:
                 (_now(), key),
             )
 
-    def reserve_alert(self, alert: Alert) -> bool:
+    def reserve_alert(self, alert: Alert, run_id: str | None = None) -> bool:
         item = alert.item
         item_payload = json.dumps(item.raw, default=str)
         outbox_payload = json.dumps(alert_to_dict(alert), default=str)
@@ -362,9 +438,9 @@ class Database:
                 return False
             db.execute(
                 """INSERT OR IGNORE INTO slack_outbox
-                   (dedup_key, payload, status, attempts, created_at, updated_at)
-                   VALUES (?, ?, 'pending', 0, ?, ?)""",
-                (alert.dedup_key, outbox_payload, now, now),
+                   (dedup_key, payload, status, attempts, created_at, updated_at, run_id)
+                   VALUES (?, ?, 'pending', 0, ?, ?, ?)""",
+                (alert.dedup_key, outbox_payload, now, now, run_id),
             )
             return True
 
@@ -471,14 +547,21 @@ class Database:
             exists = db.execute("SELECT 1 FROM yc_companies WHERE slug=?", (slug,)).fetchone()
             if exists is not None:
                 # Skip rewriting unchanged rows so a 6k-company catalog sync stays
-                # cheap; only name/host changes are worth an UPDATE.
+                # cheap. Founder handles, aliases, and the raw payload participate
+                # in the comparison too: they feed official-identity suppression,
+                # so a stale row would let already-official posts alert again.
                 row = db.execute(
-                    "SELECT name, website_host FROM yc_companies WHERE slug=?", (slug,)
+                    """SELECT name, website_host, founder_handles, name_aliases, payload
+                       FROM yc_companies WHERE slug=?""",
+                    (slug,),
                 ).fetchone()
                 if (
                     row is not None
                     and row["name"] == name
                     and (row["website_host"] or None) == (website_host or None)
+                    and row["founder_handles"] == json.dumps(founder_handles)
+                    and row["name_aliases"] == json.dumps(alias_values)
+                    and row["payload"] == json.dumps(payload, default=str)
                 ):
                     return False
             now = _now()

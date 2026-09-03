@@ -306,6 +306,18 @@ class MonitorPipeline:
                 for adapter in self.official_adapters:
                     result = await self._safe_collect(adapter, client)
                     health.append(result.health)
+                    for item in result.items:
+                        self.db.record_audit_decision(
+                            run_id,
+                            item.source.value,
+                            item.item_id,
+                            f"official:{item.source.value}:{item.item_id}",
+                            "official_ingest",
+                            "collected",
+                            None,
+                            1.0,
+                            has_alert=False,
+                        )
                     alerts.extend(
                         ingest_official_result(
                             self.db,
@@ -340,9 +352,33 @@ class MonitorPipeline:
                         self.db.put_state(
                             f"watermark:{item.source.value}", published
                         )
+                    post_key = f"{item.source.value}:{item.item_id}"
+                    # Every classification leaves an audit trace, including
+                    # deferred/capped ones that never reach seen_items — those
+                    # were previously invisible to any false-negative review.
+                    self.db.record_audit_decision(
+                        run_id,
+                        item.source.value,
+                        item.item_id,
+                        post_key,
+                        "classify",
+                        (
+                            "alert"
+                            if classification.alert
+                            else "review"
+                            if classification.reason.startswith("gpt_review:")
+                            else "rejected"
+                            if classification.persist
+                            else "deferred"
+                        ),
+                        classification.reason,
+                        classification.confidence,
+                        persist=classification.persist,
+                        has_alert=classification.alert is not None,
+                        payload=item.raw,
+                    )
                     if not classification.persist:
                         continue
-                    post_key = f"{item.source.value}:{item.item_id}"
                     if classification.alert:
                         alert = classification.alert
                         if dry_run:
@@ -352,7 +388,7 @@ class MonitorPipeline:
                             post_key, item, "evidence", classification.reason
                         ):
                             continue
-                        if self.db.reserve_alert(alert):
+                        if self.db.reserve_alert(alert, run_id=run_id):
                             alerts.append(alert)
                     elif classification.reason.startswith("gpt_review:"):
                         review_items.append(item)
@@ -567,13 +603,25 @@ class MonitorPipeline:
         hosts: set[str],
         handles: set[str],
     ) -> list[Classification]:
-        return list(
-            await asyncio.gather(
-                *(
-                    self.social_classifier.classify(item, names, hosts, handles)
-                    for item in items
+        # One unclassifiable item must not abort the whole cycle: gather without
+        # exceptions=True would roll up into run() and mark the run failed even
+        # though every other candidate classified fine.
+        async def safe(item: CanonicalItem) -> Classification:
+            try:
+                return await self.social_classifier.classify(item, names, hosts, handles)
+            except Exception as exc:  # noqa: BLE001 -- defer this item, keep the cycle
+                logger.warning(
+                    "Classifying %s:%s failed: %s",
+                    item.source.value,
+                    item.item_id,
+                    type(exc).__name__,
                 )
-            )
+                return Classification(
+                    None, f"classify_error:{type(exc).__name__}", 0.0, persist=False
+                )
+
+        return list(
+            await asyncio.gather(*(safe(item) for item in items))
         )
 
     async def _safe_collect(

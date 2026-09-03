@@ -20,6 +20,8 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Show persistent monitor status")
     leads = sub.add_parser("leads", help="Show recent detections without secrets")
     leads.add_argument("--limit", type=int, default=20)
+    audit = sub.add_parser("audit", help="Summarize a captured run's decisions")
+    audit.add_argument("run_id", help="Run ID from `status` output")
     sub.add_parser(
         "test-alert",
         help="Send a DEMO-labeled Block Kit alert to the configured Slack channel",
@@ -38,6 +40,10 @@ def main() -> None:
         print(json.dumps(pipeline.db.status(), indent=2))
     elif args.command == "leads":
         print(json.dumps(pipeline.db.recent_leads(args.limit), indent=2, default=str))
+    elif args.command == "audit":
+        from yc_monitor.audit_replay import summarize_run
+
+        print(json.dumps(summarize_run(pipeline.db, args.run_id), indent=2, default=str))
     elif args.command == "run-once":
         print(json.dumps(asyncio.run(pipeline.run(args.dry_run)), indent=2))
     elif args.command == "test-alert":
