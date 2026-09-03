@@ -205,7 +205,7 @@ class Database:
                 """SELECT dedup_key, source, item_id, company_name, canonical_url, disposition,
                           reason, payload, first_seen_at, alerted_at
                    FROM seen_items
-                   WHERE disposition IN ('alerted', 'pending', 'evidence')
+                   WHERE disposition IN ('alerted', 'pending', 'evidence', 'review')
                    ORDER BY COALESCE(alerted_at, first_seen_at) DESC
                    LIMIT ?""",
                 (max(1, min(limit, 50)),),

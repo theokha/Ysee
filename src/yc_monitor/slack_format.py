@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from yc_monitor.classify import normalize_company
 from yc_monitor.models import Alert, AlertKind, CanonicalItem, Source
 
 HEADERS = {
@@ -135,6 +138,138 @@ def _action_buttons(item: CanonicalItem) -> list[dict[str, object]]:
         add("Open directory profile", item.canonical_url, "primary")
         add("Company site", item.company_url)
     return buttons[:5]
+
+
+LEADS_MAX_PER_SECTION = 10
+
+_COMPANY_KEY_PREFIXES = ("early:", "yc:", "speedrun:", "launch:")
+
+
+@dataclass(slots=True)
+class _Lead:
+    dedup_key: str
+    source: str
+    item_id: str
+    company_name: str | None
+    disposition: str
+    reason: str
+    first_seen_at: str | None
+    alerted_at: str | None
+
+    @property
+    def timestamp(self) -> datetime:
+        return _parse_iso(self.alerted_at) or _parse_iso(self.first_seen_at) or datetime.now(UTC)
+
+    @property
+    def is_company_row(self) -> bool:
+        return self.dedup_key.startswith(_COMPANY_KEY_PREFIXES)
+
+    def label(self) -> str:
+        if self.company_name:
+            return self.company_name
+        if self.source == Source.TWITTER.value:
+            return "X post"
+        if self.source == Source.LINKEDIN.value:
+            return "LinkedIn post"
+        return self.dedup_key
+
+    def source_label(self) -> str:
+        try:
+            return _source_label(Source(self.source))
+        except ValueError:
+            return self.source
+
+
+def format_leads_blocks(leads: list[dict[str, Any]]) -> list[dict[str, object]]:
+    """Render recent seen_items rows as a grouped, deduplicated leads summary.
+
+    Company rows (early:/yc:/speedrun:/launch:) become one "Alerted" line each;
+    the post rows backing those alerts are folded away so one detection never
+    renders twice. Rows parked by a review gate land in "Review queue".
+    """
+    parsed = [
+        _Lead(
+            dedup_key=str(row.get("dedup_key") or ""),
+            source=str(row.get("source") or ""),
+            item_id=str(row.get("item_id") or ""),
+            company_name=(str(row["company_name"]) if row.get("company_name") else None),
+            disposition=str(row.get("disposition") or ""),
+            reason=str(row.get("reason") or ""),
+            first_seen_at=(str(row["first_seen_at"]) if row.get("first_seen_at") else None),
+            alerted_at=(str(row["alerted_at"]) if row.get("alerted_at") else None),
+        )
+        for row in leads
+    ]
+
+    # A social signal stores two linked rows sharing an item_id: the post row
+    # (twitter:<id>, disposition evidence) and the company row (early:<name>).
+    # Keep the company row, fold the post row away.
+    alerted_item_ids = {lead.item_id for lead in parsed if lead.is_company_row}
+    company_rows = [
+        lead
+        for lead in parsed
+        if lead.is_company_row and lead.disposition in {"alerted", "pending"}
+    ]
+    review_rows = [
+        lead
+        for lead in parsed
+        if lead.disposition == "review"
+        and not (lead.item_id and lead.item_id in alerted_item_ids)
+    ]
+
+    alerted = _collapse_by_company(company_rows)[:LEADS_MAX_PER_SECTION]
+    review = _collapse_by_company(review_rows)[:LEADS_MAX_PER_SECTION]
+
+    if not alerted and not review:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": "No leads yet."}}]
+
+    sections: list[str] = []
+    if alerted:
+        lines = [f"*Alerted ({len(alerted)})*"]
+        lines.extend(f"• {_alerted_line(lead)}" for lead in alerted)
+        sections.append("\n".join(lines))
+    if review:
+        lines = [f"*Review queue ({len(review)})*"]
+        lines.extend(f"• {_review_line(lead)}" for lead in review)
+        sections.append("\n".join(lines))
+
+    return [
+        {"type": "header", "text": {"type": "plain_text", "text": "Recent leads"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(sections)}},
+    ]
+
+
+def _alerted_line(lead: _Lead) -> str:
+    date = lead.timestamp.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%b %-d")
+    return f"{lead.label()} - {lead.source_label()}, {date}"
+
+
+def _review_line(lead: _Lead) -> str:
+    reason = lead.reason.removeprefix("gpt_review:") or "needs review"
+    date = lead.timestamp.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%b %-d")
+    return f"{lead.label()} - {reason}, {date}"
+
+
+def _collapse_by_company(rows: list[_Lead]) -> list[_Lead]:
+    best: dict[str, _Lead] = {}
+    for lead in rows:
+        key = normalize_company(lead.company_name) or lead.dedup_key
+        current = best.get(key)
+        if current is None or lead.timestamp > current.timestamp:
+            best[key] = lead
+    return sorted(best.values(), key=lambda lead: lead.timestamp, reverse=True)
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def format_status_blocks(status: dict[str, Any]) -> list[dict[str, object]]:

@@ -23,6 +23,7 @@ from yc_monitor.db import SCHEDULER_NEXT_RUN_KEY
 from yc_monitor.pipeline import MonitorPipeline
 from yc_monitor.scheduler import build_scheduler, job_next_run_iso, schedule_first_run
 from yc_monitor.slack_app import handle_slash_command, verify_slack_signature
+from yc_monitor.slack_format import format_leads_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -209,13 +210,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             }
         elif text == "leads_requested":
-            leads = pipeline.db.recent_leads(10)
-            names = [str(item.get("company_name") or item.get("dedup_key")) for item in leads]
+            leads = pipeline.db.recent_leads(25)
             response = {
                 "response_type": "ephemeral",
-                "text": "Recent leads:\n" + "\n".join(f"• {name}" for name in names[:10])
-                if names
-                else "No recent leads.",
+                "text": "Recent leads",
+                "blocks": format_leads_blocks(leads),
             }
         elif text == "retry_requested":
             delivered = await pipeline.deliver_outbox()
