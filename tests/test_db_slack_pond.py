@@ -86,7 +86,7 @@ def test_slash_command_returns_status_blocks() -> None:
     assert "YC Launch Monitor status" in rendered
     assert "12" in rendered
     scan = handle_slash_command("/yc", "scan dry", {})
-    assert scan["text"] == "dry_scan_requested"
+    assert scan["text"] == "Dry scan started. Results will arrive here shortly."
 
 
 def test_early_official_upgrade_card() -> None:

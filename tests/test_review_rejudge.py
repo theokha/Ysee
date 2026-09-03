@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import threading
 import time
 from unittest.mock import patch
 
@@ -488,10 +490,10 @@ def test_review_slash_command_is_admin_gated() -> None:
 
 def test_review_slash_command_allowed_for_admin_and_when_unconfigured() -> None:
     admin = handle_slash_command("/yc", "review", {}, user_id=ADMIN, admin_users={ADMIN})
-    assert admin["text"] == "review_requested"
+    assert admin["text"] == "Review re-judge started. Results will arrive here shortly."
     assert admin["response_type"] == "ephemeral"
     open_ = handle_slash_command("/yc", "review", {}, user_id="UANYONE", admin_users=None)
-    assert open_["text"] == "review_requested"
+    assert open_["text"] == "Review re-judge started. Results will arrive here shortly."
 
 
 def test_help_mentions_review_command() -> None:
@@ -517,7 +519,7 @@ def _signed_post(client: TestClient, secret: str, body: bytes) -> Response:
     )
 
 
-def test_route_rejudges_review_queue_and_summarizes(tmp_path) -> None:
+def test_route_acks_review_immediately_and_schedules_background_work(tmp_path) -> None:
     settings = Settings(
         database_path=str(tmp_path / "pond.db"),
         slack_signing_secret="route-secret",
@@ -529,24 +531,31 @@ def test_route_rejudges_review_queue_and_summarizes(tmp_path) -> None:
     )
     db = Database(settings.database_path)
     seed_review(db, review_item("tweet-1", "Harbor"))
+    started = threading.Event()
+    release = threading.Event()
 
-    with patch.object(MonitorPipeline, "rejudge_review_queue") as rejudge:
-        rejudge.return_value = {
-            "reviewed": 1,
-            "promoted": ["twitter:tweet-1"],
-            "cleared": 0,
-            "deferred": 0,
-            "promoted_alerts": ["early:harbor"],
-            "promoted_names": ["Harbor"],
-            "delivered": 1,
-        }
-        client = TestClient(create_app(settings))
-        response = _signed_post(client, "route-secret", b"command=/yc&text=review&user_id=U1")
+    async def slow_rejudge(self, limit: int) -> dict[str, object]:
+        started.set()
+        # Hold the background job open until the test has seen the ack.
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"reviewed": 0, "promoted": [], "cleared": 0, "deferred": 0}
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["response_type"] == "ephemeral"
-    assert "Re-reviewed 1 queued post(s)" in body["text"]
-    assert "1 promoted (and sent)" in body["text"]
-    assert "New alerts: Harbor" in body["text"]
-    rejudge.assert_awaited_once_with(25)
+    with (
+        patch.object(MonitorPipeline, "rejudge_review_queue", slow_rejudge),
+        TestClient(create_app(settings)) as client,
+    ):
+        started_at = time.monotonic()
+        response = _signed_post(
+            client, "route-secret", b"command=/yc&text=review&user_id=U1&channel_id=C1"
+        )
+        elapsed = time.monotonic() - started_at
+        # The ack must beat Slack's 3-second limit even though the work cannot.
+        assert response.status_code == 200
+        assert elapsed < 2
+        body = response.json()
+        assert body["response_type"] == "ephemeral"
+        assert body["text"] == "Review re-judge started. Results will arrive here shortly."
+        # The rejudge ran on the loop after the ack, not awaited inline.
+        assert started.wait(5)
+        release.set()

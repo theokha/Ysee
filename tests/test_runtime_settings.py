@@ -336,12 +336,12 @@ def test_scan_blocked_for_non_admin_when_admins_configured() -> None:
 
 def test_scan_allowed_for_admin() -> None:
     response = run_command("scan", None, user_id=ADMIN)
-    assert response["text"] == "scan_requested"
+    assert response["text"] == "Live scan started. Results will arrive here in a few minutes."
 
 
 def test_scan_allowed_when_no_admin_list_configured() -> None:
     response = run_command("scan", None, user_id="UANYONE", admin_users=None)
-    assert response["text"] == "scan_requested"
+    assert response["text"] == "Live scan started. Results will arrive here in a few minutes."
 
 
 def test_config_set_open_when_no_admin_list_configured(tmp_path) -> None:
@@ -354,7 +354,9 @@ def test_config_set_open_when_no_admin_list_configured(tmp_path) -> None:
 
 
 def test_scan_dry_allowed_for_admin_and_blocked_for_stranger() -> None:
-    assert run_command("scan dry", None, user_id=ADMIN)["text"] == "dry_scan_requested"
+    assert run_command("scan dry", None, user_id=ADMIN)["text"] == (
+        "Dry scan started. Results will arrive here shortly."
+    )
     assert run_command("scan dry", None, user_id="USTRANGER")["text"] == (
         "Only admins can trigger scans (they spend API budget)."
     )

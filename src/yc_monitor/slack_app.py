@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import time
 from typing import Any
 from urllib.parse import parse_qs
@@ -12,6 +13,8 @@ from yc_monitor.config import Settings
 from yc_monitor.db import Database
 from yc_monitor.models import Alert
 from yc_monitor.slack_format import build_demo_alert, format_alert, format_status_blocks
+
+logger = logging.getLogger(__name__)
 
 
 class SlackNotifier:
@@ -55,6 +58,26 @@ class SlackNotifier:
             return {"channel": channel}
         return {"channel": channel, "ts": ts}
 
+    async def post_ephemeral(self, user_id: str, channel_id: str, text: str) -> None:
+        """Post a follow-up only the invoking user can see.
+
+        Slash-command work that outlives the 3-second Slack ack posts its
+        results here. Failures are swallowed (logged) rather than raised: a
+        missing token or a Slack hiccup must not turn into an unhandled
+        background-task error after the command already acknowledged.
+        """
+        if not user_id or not channel_id:
+            logger.warning("Skipping ephemeral follow-up: missing user or channel")
+            return
+        token = self._bot_token()
+        if not token:
+            return
+        client = AsyncWebClient(token=token)
+        try:
+            await client.chat_postEphemeral(channel=channel_id, user=user_id, text=text)
+        except Exception:  # noqa: BLE001 -- follow-ups must never crash the task
+            logger.warning("Failed to post ephemeral follow-up")
+
 
 async def send_test_alert(settings: Settings, db: Database) -> dict[str, Any]:
     notifier = SlackNotifier(settings, db)
@@ -82,6 +105,19 @@ def verify_slack_signature(
 def slash_command_payload(body: bytes) -> dict[str, str]:
     parsed = parse_qs(body.decode(), keep_blank_values=True)
     return {key: values[0] if values else "" for key, values in parsed.items()}
+
+
+# The slow actions (`/yc scan`, `scan dry`, `review`, `retry`) cannot finish
+# inside Slack's 3-second command timeout, so handle_slash_command answers with
+# one of these acks and the server routes the real work to a background task.
+# Keyed by internal action id; the route matches on the ack text to decide what
+# to schedule, so a denied or unknown command never gets backgrounded.
+ACK_TEXTS = {
+    "scan_requested": "Live scan started. Results will arrive here in a few minutes.",
+    "dry_scan_requested": "Dry scan started. Results will arrive here shortly.",
+    "review_requested": "Review re-judge started. Results will arrive here shortly.",
+    "retry_requested": "Retry started. Confirmation will follow.",
+}
 
 
 def handle_slash_command(
@@ -118,7 +154,8 @@ def handle_slash_command(
                 "`/yc scan dry` - dry-run a cycle, nothing posted (admin)\n"
                 "`/yc review` - re-judge queued review posts with current filters (admin)\n"
                 "`/yc leads` - recent detections\n"
-                "`/yc retry` - retry failed Slack deliveries"
+                "`/yc retry` - retry failed Slack deliveries\n"
+                "Scans, review, and retry run in the background; the result is DM'd to you when done."
             ),
         }
     if action == "config":
@@ -131,15 +168,13 @@ def handle_slash_command(
             }
         if action == "scan":
             dry = len(parts) > 1 and parts[1].lower() == "dry"
-            return {
-                "response_type": "ephemeral",
-                "text": "dry_scan_requested" if dry else "scan_requested",
-            }
+            key = "dry_scan_requested" if dry else "scan_requested"
+            return {"response_type": "ephemeral", "text": ACK_TEXTS[key]}
         if action == "review":
-            return {"response_type": "ephemeral", "text": "review_requested"}
+            return {"response_type": "ephemeral", "text": ACK_TEXTS["review_requested"]}
         if action == "leads":
             return {"response_type": "ephemeral", "text": "leads_requested"}
-        return {"response_type": "ephemeral", "text": "retry_requested"}
+        return {"response_type": "ephemeral", "text": ACK_TEXTS["retry_requested"]}
     return {
         "response_type": "ephemeral",
         "text": "Unknown command. Try `/yc help`.",

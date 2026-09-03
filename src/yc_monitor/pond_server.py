@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import secrets
@@ -22,10 +23,76 @@ from yc_monitor.config import Settings, get_settings
 from yc_monitor.db import SCHEDULER_NEXT_RUN_KEY
 from yc_monitor.pipeline import MonitorPipeline
 from yc_monitor.scheduler import build_scheduler, job_next_run_iso, schedule_first_run
-from yc_monitor.slack_app import handle_slash_command, verify_slack_signature
+from yc_monitor.slack_app import ACK_TEXTS, handle_slash_command, verify_slack_signature
 from yc_monitor.slack_format import format_leads_blocks
 
 logger = logging.getLogger(__name__)
+
+# Slack gives a slash command 3 seconds to respond, but a scan/review/retry can
+# run for minutes. handle_slash_command answers these with a quick ack (see
+# slack_app.ACK_TEXTS); matching that ack here tells the route to schedule the
+# real work on the event loop instead of blocking the response.
+BACKGROUND_ACK_TO_ACTION = {text: action for action, text in ACK_TEXTS.items()}
+
+# Held references: a task nobody points at can be garbage-collected mid-run.
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+def _summarize_action(action: str, result: dict[str, Any]) -> str:
+    if action in {"scan_requested", "dry_scan_requested"}:
+        return (
+            f"Dry scan complete. {result.get('alert_count', 0)} candidate(s), nothing posted."
+            if action == "dry_scan_requested"
+            else (
+                f"Scan complete. {result.get('alert_count', 0)} new alert(s), "
+                f"{result.get('delivered_count', 0)} delivered."
+            )
+        )
+    if action == "review_requested":
+        promoted_keys = result.get("promoted")
+        promoted_names = result.get("promoted_names")
+        summary = (
+            f"Re-reviewed {result.get('reviewed', 0)} queued post(s): "
+            f"{len(promoted_keys) if isinstance(promoted_keys, list) else 0} promoted "
+            f"(and sent), {result.get('cleared', 0)} cleared, "
+            f"{result.get('deferred', 0)} still deferred."
+        )
+        if isinstance(promoted_names, list) and promoted_names:
+            summary += " New alerts: " + ", ".join(str(name) for name in promoted_names[:8])
+        return summary
+    return f"Retried outbox. Delivered {result.get('delivered', 0)} message(s)."
+
+
+async def _run_background_scan(
+    action: str, payload: dict[str, str], pipeline: MonitorPipeline
+) -> None:
+    """Run a slow slash-command action off the request path, then DM the result.
+
+    Both halves are guarded: a failure in the work still reaches the user, and a
+    failure in the follow-up post never surfaces as an unobserved task error.
+    """
+    user_id = payload.get("user_id", "")
+    channel_id = payload.get("channel_id", "")
+    try:
+        if action in {"scan_requested", "dry_scan_requested"}:
+            result: dict[str, Any] = await pipeline.run(
+                dry_run=action == "dry_scan_requested"
+            )
+        elif action == "review_requested":
+            result = await pipeline.rejudge_review_queue(25)
+        elif action == "retry_requested":
+            result = {"delivered": await pipeline.deliver_outbox()}
+        else:
+            logger.warning("Unknown background action %r; nothing to do", action)
+            return
+        summary = _summarize_action(action, result)
+    except Exception as exc:
+        logger.exception("Background slash-command action %s failed", action)
+        summary = f"That background job failed ({type(exc).__name__}). Nothing was posted."
+    try:
+        await pipeline.notifier.post_ephemeral(user_id, channel_id, summary)
+    except Exception:
+        logger.exception("Failed to deliver background result for %s", action)
 
 
 class RunRequest(BaseModel):
@@ -200,49 +267,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             admin_users=admins if admins else None,
         )
         text = str(response.get("text") or "")
-        if text == "dry_scan_requested":
-            result = await pipeline.run(dry_run=True)
-            response = {
-                "response_type": "ephemeral",
-                "text": f"Dry scan complete. {result.get('alert_count', 0)} candidate(s), nothing posted.",
-            }
-        elif text == "scan_requested":
-            result = await pipeline.run(dry_run=False)
-            response = {
-                "response_type": "ephemeral",
-                "text": (
-                    f"Scan complete. {result.get('alert_count', 0)} new alert(s), "
-                    f"{result.get('delivered_count', 0)} delivered."
-                ),
-            }
-        elif text == "review_requested":
-            result = await pipeline.rejudge_review_queue(25)
-            promoted_keys = result.get("promoted")
-            promoted_names = result.get("promoted_names")
-            summary = (
-                f"Re-reviewed {result.get('reviewed', 0)} queued post(s): "
-                f"{len(promoted_keys) if isinstance(promoted_keys, list) else 0} promoted "
-                f"(and sent), {result.get('cleared', 0)} cleared, "
-                f"{result.get('deferred', 0)} still deferred."
-            )
-            if isinstance(promoted_names, list) and promoted_names:
-                summary += (
-                    " New alerts: "
-                    + ", ".join(str(name) for name in promoted_names[:8])
-                )
-            response = {"response_type": "ephemeral", "text": summary}
+        action_key = BACKGROUND_ACK_TO_ACTION.get(text)
+        if action_key is not None:
+            # Slack times a command out after 3s, and these run for minutes.
+            # Ack now, then finish the work (and DM the result) on the loop.
+            task = asyncio.create_task(_run_background_scan(action_key, payload, pipeline))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         elif text == "leads_requested":
             leads = pipeline.db.recent_leads(25)
             response = {
                 "response_type": "ephemeral",
                 "text": "Recent leads",
                 "blocks": format_leads_blocks(leads),
-            }
-        elif text == "retry_requested":
-            delivered = await pipeline.deliver_outbox()
-            response = {
-                "response_type": "ephemeral",
-                "text": f"Retried outbox. Delivered {delivered} message(s).",
             }
         return JSONResponse(response)
 
