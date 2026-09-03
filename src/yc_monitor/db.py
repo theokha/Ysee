@@ -246,6 +246,7 @@ class Database:
             record = dict(row)
             snippet = ""
             author_name: str | None = None
+            author_handle: str | None = None
             raw = record.pop("payload", None)
             if isinstance(raw, str) and raw:
                 try:
@@ -264,8 +265,16 @@ class Database:
                         candidate = author.get("name")
                         if isinstance(candidate, str) and candidate.strip():
                             author_name = candidate.strip()
+                        # X calls it userName, LinkedIn publicIdentifier; either
+                        # gives the leads list an @handle to attribute a post to.
+                        for field in ("userName", "username", "publicIdentifier"):
+                            value = author.get(field)
+                            if isinstance(value, str) and value.strip():
+                                author_handle = value.strip().lstrip("@")
+                                break
             record["snippet"] = snippet
             record["author_name"] = author_name
+            record["author_handle"] = author_handle
             leads.append(record)
         return leads
 

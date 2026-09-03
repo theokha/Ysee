@@ -147,7 +147,9 @@ def test_demo_alert_is_labeled_and_not_source_evidence() -> None:
     alert = build_demo_alert()
     text, blocks = format_alert(alert, demo=True)
     rendered = str(blocks)
-    assert text.startswith("DEMO |")
+    # The kind icon leads the header now, so DEMO is no longer at index 0 --
+    # but it must still precede the alert kind, before anything is read.
+    assert "DEMO | NEW YC COMPANY" in text
     assert "DEMO ALERT" in rendered
     assert "not a real YC detection" in rendered
     assert alert.dedup_key == "demo:test-alert"
@@ -194,5 +196,5 @@ async def test_send_test_alert_does_not_write_outbox_or_tokens(tmp_path) -> None
     assert "token" not in str(result).lower()
     assert db.status()["outbox"] == {}
     posted_kwargs = client.chat_postMessage.await_args.kwargs
-    assert posted_kwargs["text"].startswith("DEMO |")
+    assert "DEMO | NEW YC COMPANY" in posted_kwargs["text"]
     assert "DEMO ALERT" in str(posted_kwargs["blocks"])

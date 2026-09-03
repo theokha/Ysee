@@ -69,6 +69,9 @@ class Alert:
     detected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     upgrade_from: str | None = None
     upgrade_note: str | None = None
+    # Why the classifier accepted this, carried through so Slack can show the
+    # judgement alongside the claim rather than asserting it bare.
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -88,6 +91,7 @@ def alert_to_dict(alert: Alert) -> dict[str, Any]:
         "detected_at": alert.detected_at.isoformat(),
         "upgrade_from": alert.upgrade_from,
         "upgrade_note": alert.upgrade_note,
+        "reason": alert.reason,
         "item": {
             "source": str(item.source),
             "item_id": item.item_id,
@@ -132,4 +136,5 @@ def alert_from_dict(payload: dict[str, Any]) -> Alert:
         detected_at=datetime.fromisoformat(payload["detected_at"]),
         upgrade_from=payload.get("upgrade_from"),
         upgrade_note=payload.get("upgrade_note"),
+        reason=payload.get("reason"),
     )
